@@ -1,0 +1,26 @@
+{
+  "name": "@sunjiehao/vpsmonitor-main",
+  "version": "0.1.0",
+  "description": "Interactive main VPS installer and manager for VPSMonitor.",
+  "license": "MIT",
+  "bin": {
+    "vpsmonitor-main": "bin/vpsmonitor-main.js"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "vendor",
+    "README.md",
+    "package.json"
+  ],
+  "scripts": {
+    "prepack": "node scripts/prepare-package.js",
+    "smoke": "node bin/vpsmonitor-main.js --help"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

@@ -1,0 +1,6 @@
+controller_url: https://monitor.example.com
+node_id: example-node
+node_token: replace-with-node-token
+interface: auto
+disk_path: /
+timeout_seconds: 15

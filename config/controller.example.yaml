@@ -1,0 +1,18 @@
+database: ./controller.sqlite3
+
+alerts:
+  stale_after_minutes: 45
+  disk_warning_percent: 15
+  traffic_warning_percent: 25
+  traffic_critical_percent: 10
+  forecast_days: 7
+  forecast_window_days: 3
+
+notifications:
+  telegram:
+    enabled: false
+    bot_token_env: TELEGRAM_BOT_TOKEN
+    chat_id_env: TELEGRAM_CHAT_ID
+  bark:
+    enabled: false
+    url_env: BARK_URL

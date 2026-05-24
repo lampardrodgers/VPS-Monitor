@@ -1,0 +1,26 @@
+{
+  "name": "@sunjiehao/vpsmonitor-sub",
+  "version": "0.1.0",
+  "description": "Interactive child VPS agent installer for VPSMonitor.",
+  "license": "MIT",
+  "bin": {
+    "vpsmonitor-sub": "bin/vpsmonitor-sub.js"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "vendor",
+    "README.md",
+    "package.json"
+  ],
+  "scripts": {
+    "prepack": "node scripts/prepare-package.js",
+    "smoke": "node bin/vpsmonitor-sub.js --help"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

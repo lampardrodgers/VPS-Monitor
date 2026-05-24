@@ -1,0 +1,21 @@
+[project]
+name = "vps-monitor-controller"
+version = "0.1.0"
+description = "Self-hosted controller for VPS resource and bandwidth monitoring."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.116.0",
+  "PyYAML>=6.0.2",
+  "uvicorn[standard]>=0.35.0",
+]
+
+[project.scripts]
+vpsmon-controller = "bandwidth_monitor_controller.cli:main"
+
+[build-system]
+requires = ["setuptools>=69.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["src"]
