@@ -12,6 +12,7 @@ NODE_TOKEN="${VPSMON_NODE_TOKEN:-}"
 PAIRING_URL="${VPSMON_PAIRING_URL:-}"
 INTERFACE="${VPSMON_INTERFACE:-auto}"
 DISK_PATH="${VPSMON_DISK_PATH:-/}"
+CHECK_INTERVAL_SECONDS="${VPSMON_CHECK_INTERVAL_SECONDS:-900}"
 
 if [[ "$(id -u)" -ne 0 ]]; then
   echo "Run as root." >&2
@@ -120,7 +121,8 @@ if command -v systemctl >/dev/null 2>&1; then
   "$APP_DIR/venv/bin/vpsmon-agent" print-systemd \
     --config "$CONFIG_PATH" \
     --binary "$APP_DIR/venv/bin/vpsmon-agent" \
-    --user "$SERVICE_USER" > /tmp/vpsmon-agent.systemd
+    --user "$SERVICE_USER" \
+    --interval-seconds "$CHECK_INTERVAL_SECONDS" > /tmp/vpsmon-agent.systemd
   awk '/^# \/etc\/systemd\/system\/vpsmon-agent.service/{flag=1;next}/^# \/etc\/systemd\/system\/vpsmon-agent.timer/{flag=0}flag' /tmp/vpsmon-agent.systemd > /etc/systemd/system/vpsmon-agent.service
   awk '/^# \/etc\/systemd\/system\/vpsmon-agent.timer/{flag=1;next}/^# Enable with:/{flag=0}flag' /tmp/vpsmon-agent.systemd > /etc/systemd/system/vpsmon-agent.timer
   systemctl daemon-reload

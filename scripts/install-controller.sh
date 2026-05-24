@@ -21,6 +21,7 @@ SELF_NODE_NAME="${SELF_NODE_NAME:-Main Controller}"
 SELF_NODE_PROVIDER="${SELF_NODE_PROVIDER:-self-hosted}"
 SELF_NODE_COUNTRY="${SELF_NODE_COUNTRY:-}"
 SELF_NODE_QUOTA_GB="${SELF_NODE_QUOTA_GB:-}"
+SELF_CHECK_INTERVAL_SECONDS="${SELF_CHECK_INTERVAL_SECONDS:-900}"
 CREATE_APP_TOKEN="${CREATE_APP_TOKEN:-1}"
 INFO_PATH="${INFO_PATH:-/root/vpsmonitor-install-info.txt}"
 
@@ -94,6 +95,8 @@ chown root:"$SERVICE_USER" "$CONFIG_PATH"
 chmod 640 "$CONFIG_PATH"
 
 "$APP_DIR/venv/bin/vpsmon-controller" init-db --config "$CONFIG_PATH"
+chown -R "$SERVICE_USER:$SERVICE_USER" "$DATA_DIR"
+chmod 750 "$DATA_DIR"
 "$APP_DIR/venv/bin/vpsmon-controller" print-systemd \
   --config "$CONFIG_PATH" \
   --binary "$APP_DIR/venv/bin/vpsmon-controller" \
@@ -153,7 +156,8 @@ YAML
   "$AGENT_APP_DIR/venv/bin/vpsmon-agent" print-systemd \
     --config "$AGENT_CONFIG_PATH" \
     --binary "$AGENT_APP_DIR/venv/bin/vpsmon-agent" \
-    --user "$SELF_AGENT_USER" > /tmp/vpsmon-agent.systemd
+    --user "$SELF_AGENT_USER" \
+    --interval-seconds "$SELF_CHECK_INTERVAL_SECONDS" > /tmp/vpsmon-agent.systemd
   awk '/^# \/etc\/systemd\/system\/vpsmon-agent.service/{flag=1;next}/^# \/etc\/systemd\/system\/vpsmon-agent.timer/{flag=0}flag' /tmp/vpsmon-agent.systemd > /etc/systemd/system/vpsmon-agent.service
   awk '/^# \/etc\/systemd\/system\/vpsmon-agent.timer/{flag=1;next}/^# Enable with:/{flag=0}flag' /tmp/vpsmon-agent.systemd > /etc/systemd/system/vpsmon-agent.timer
   systemctl daemon-reload
@@ -164,6 +168,7 @@ fi
   echo "VPSMonitor controller installed"
   echo
   echo "Public URL: $PUBLIC_URL"
+  echo "Web console: $PUBLIC_URL"
   echo "Controller config: $CONFIG_PATH"
   echo "Self agent config: $AGENT_CONFIG_PATH"
   echo

@@ -42,6 +42,7 @@ The installer:
 - installs `vps-monitor-agent` on the main VPS too;
 - registers the main VPS as `main-controller`;
 - starts `vpsmon-controller.service`, `vpsmon-controller-alerts.timer`, and `vpsmon-agent.timer`;
+- serves the packaged web console from the controller public URL;
 - writes the reusable operation sheet to `/root/vpsmonitor-install-info.txt`.
 
 Create a child node and generate the content to paste on that child VPS:
@@ -72,6 +73,8 @@ sudo /opt/vpsmonitor/controller/venv/bin/vpsmon-controller list-nodes --config /
 sudo /opt/vpsmonitor/controller/venv/bin/vpsmon-controller show-join --config /etc/vpsmonitor/controller.yaml --base-url https://monitor.example.com
 sudo cat /root/vpsmonitor-install-info.txt
 ```
+
+Open the controller public URL in a browser and paste the app token created by `create-app-token` to use the web console. The console can manually refresh API data, set global and per-node check intervals from `1s` to `86400s`, and pause/resume monitoring for individual nodes.
 
 Revoke a node from the controller:
 
@@ -108,6 +111,8 @@ sudo /opt/vpsmonitor/agent/venv/bin/vpsmon-agent once --config /etc/vpsmonitor/a
 sudo systemctl start vpsmon-agent.service
 sudo systemctl status vpsmon-agent.timer
 ```
+
+The agent timer defaults to 900 seconds. When the controller target interval changes, the agent receives it in the next report response and rewrites `vpsmon-agent.timer` locally.
 
 Disconnect the child VPS locally:
 

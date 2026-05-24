@@ -9,4 +9,4 @@ vpsmonitor-main add-sub
 vpsmonitor-main nodes
 ```
 
-The installer prompts for settings and installs both the controller and a local agent for monitoring the main VPS itself.
+The installer prompts for settings, installs both the controller and a local agent for monitoring the main VPS itself, and serves the bundled web console from the controller URL.

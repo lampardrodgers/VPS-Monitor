@@ -11,10 +11,16 @@ import uuid
 
 from .security import hash_token, new_token
 
+MIN_CHECK_INTERVAL_SECONDS = 1
+MAX_CHECK_INTERVAL_SECONDS = 86400
+DEFAULT_CHECK_INTERVAL_SECONDS = 900
+DEFAULT_CHECK_INTERVAL_SETTING = "default_check_interval_seconds"
+_UNSET = object()
+
 
 def connect(path: Path) -> Connection:
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(path)
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
@@ -76,7 +82,25 @@ def init_db(conn: Connection) -> None:
             created_at TEXT NOT NULL,
             last_used_at TEXT
         );
+
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
         """
+    )
+    _ensure_column(conn, "nodes", "monitoring_enabled", "INTEGER NOT NULL DEFAULT 1")
+    _ensure_column(conn, "nodes", "monitoring_paused_at", "TEXT")
+    _ensure_column(conn, "nodes", "check_interval_seconds_override", "INTEGER")
+    _ensure_column(conn, "nodes", "applied_check_interval_seconds", "INTEGER")
+    _ensure_column(conn, "nodes", "check_interval_applied_at", "TEXT")
+    conn.execute(
+        """
+        INSERT OR IGNORE INTO settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        """,
+        (DEFAULT_CHECK_INTERVAL_SETTING, str(DEFAULT_CHECK_INTERVAL_SECONDS), to_iso()),
     )
     conn.commit()
 
@@ -93,6 +117,51 @@ def parse_dt(value: str | None) -> datetime | None:
     if not value:
         return None
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+
+def validate_check_interval(seconds: int) -> int:
+    seconds = int(seconds)
+    if seconds < MIN_CHECK_INTERVAL_SECONDS or seconds > MAX_CHECK_INTERVAL_SECONDS:
+        raise ValueError(
+            f"check interval must be between {MIN_CHECK_INTERVAL_SECONDS} and {MAX_CHECK_INTERVAL_SECONDS} seconds"
+        )
+    return seconds
+
+
+def get_default_check_interval(conn: Connection) -> int:
+    row = conn.execute(
+        "SELECT value FROM settings WHERE key = ?",
+        (DEFAULT_CHECK_INTERVAL_SETTING,),
+    ).fetchone()
+    if not row:
+        return DEFAULT_CHECK_INTERVAL_SECONDS
+    try:
+        return validate_check_interval(int(row["value"]))
+    except (TypeError, ValueError):
+        return DEFAULT_CHECK_INTERVAL_SECONDS
+
+
+def set_default_check_interval(conn: Connection, seconds: int) -> int:
+    seconds = validate_check_interval(seconds)
+    conn.execute(
+        """
+        INSERT INTO settings (key, value, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(key) DO UPDATE SET
+            value = excluded.value,
+            updated_at = excluded.updated_at
+        """,
+        (DEFAULT_CHECK_INTERVAL_SETTING, str(seconds), to_iso()),
+    )
+    conn.commit()
+    return seconds
+
+
+def effective_check_interval(conn: Connection, row: dict[str, Any] | Row) -> int:
+    override = row["check_interval_seconds_override"] if "check_interval_seconds_override" in row.keys() else None
+    if override is not None:
+        return validate_check_interval(int(override))
+    return get_default_check_interval(conn)
 
 
 def create_node(
@@ -132,6 +201,106 @@ def create_node(
     )
     conn.commit()
     return node_id, token
+
+
+def update_node_metadata(
+    conn: Connection,
+    node_id: str,
+    *,
+    name: str | None = None,
+    provider: str | None = None,
+    country: str | None = None,
+    quota_gb: float | None | object = _UNSET,
+) -> bool:
+    row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+    if not row:
+        return False
+
+    updates: list[str] = []
+    values: list[Any] = []
+
+    if name is not None:
+        updates.append("name = ?")
+        values.append(name)
+    if provider is not None:
+        updates.append("provider = ?")
+        values.append(provider)
+    if country is not None:
+        updates.append("country = ?")
+        values.append(country)
+    if quota_gb is not _UNSET:
+        if quota_gb is None:
+            updates.append("quota_bytes = NULL")
+        else:
+            if quota_gb < 0:
+                raise ValueError("quota-gb must be non-negative")
+            updates.append("quota_bytes = ?")
+            values.append(int(quota_gb * 1024**3))
+
+    if not updates:
+        return True
+
+    updates.append("updated_at = ?")
+    values.append(to_iso())
+    values.append(node_id)
+    conn.execute(f"UPDATE nodes SET {', '.join(updates)} WHERE id = ?", values)
+    conn.commit()
+    return True
+
+
+def update_node_settings(
+    conn: Connection,
+    node_id: str,
+    *,
+    monitoring_enabled: bool | None = None,
+    check_interval_seconds_override: int | None | object = _UNSET,
+) -> bool:
+    row = conn.execute("SELECT * FROM nodes WHERE id = ?", (node_id,)).fetchone()
+    if not row:
+        return False
+
+    updates: list[str] = []
+    values: list[Any] = []
+    now = to_iso()
+
+    if monitoring_enabled is not None:
+        enabled_int = 1 if monitoring_enabled else 0
+        updates.append("monitoring_enabled = ?")
+        values.append(enabled_int)
+        updates.append("monitoring_paused_at = ?")
+        values.append(None if monitoring_enabled else now)
+
+    if check_interval_seconds_override is not _UNSET:
+        if check_interval_seconds_override is None:
+            updates.append("check_interval_seconds_override = NULL")
+        else:
+            updates.append("check_interval_seconds_override = ?")
+            values.append(validate_check_interval(int(check_interval_seconds_override)))
+
+    if not updates:
+        return True
+
+    updates.append("updated_at = ?")
+    values.append(now)
+    values.append(node_id)
+    conn.execute(f"UPDATE nodes SET {', '.join(updates)} WHERE id = ?", values)
+    conn.commit()
+    return True
+
+
+def mark_check_interval_applied(conn: Connection, node_id: str, seconds: int | None) -> None:
+    if seconds is None:
+        return
+    conn.execute(
+        """
+        UPDATE nodes
+        SET applied_check_interval_seconds = ?,
+            check_interval_applied_at = ?
+        WHERE id = ?
+        """,
+        (validate_check_interval(int(seconds)), to_iso(), node_id),
+    )
+    conn.commit()
 
 
 def delete_node(conn: Connection, node_id: str) -> bool:
@@ -322,3 +491,9 @@ def _slugify(value: str) -> str:
     candidate = "".join(ch.lower() if ch.isalnum() else "-" for ch in value).strip("-")
     candidate = "-".join(part for part in candidate.split("-") if part)
     return candidate or f"node-{uuid.uuid4().hex[:8]}"
+
+
+def _ensure_column(conn: Connection, table: str, column: str, definition: str) -> None:
+    existing = {row["name"] for row in conn.execute(f"PRAGMA table_info({table})").fetchall()}
+    if column not in existing:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")

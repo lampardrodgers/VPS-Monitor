@@ -10,6 +10,8 @@ It is designed as a one-shot command run by a systemd timer. It collects:
 - Live network counters from `/proc/net/dev`.
 - Monthly bandwidth from `vnStat` when available.
 
+The controller can return a target check interval from `1s` to `86400s` in the report response. The agent then rewrites its local `vpsmon-agent.timer` so future reports use that interval.
+
 ## Install
 
 From this repository:
@@ -29,7 +31,7 @@ python3 -m pip install "git+https://github.com/yourname/VPSMonitor.git#subdirect
 ```bash
 vpsmon-agent once --config /etc/vpsmonitor/agent.yaml
 vpsmon-agent once --config /etc/vpsmonitor/agent.yaml --dry-run
-vpsmon-agent print-systemd --config /etc/vpsmonitor/agent.yaml
+vpsmon-agent print-systemd --config /etc/vpsmonitor/agent.yaml --interval-seconds 900
 ```
 
 The repository installer can also disconnect the local agent:

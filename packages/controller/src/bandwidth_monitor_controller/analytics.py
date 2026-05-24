@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
+from . import db
 from .config import AlertConfig
 from .db import parse_dt, recent_reports
 
@@ -26,6 +27,7 @@ def percent(numerator: int | float | None, denominator: int | float | None) -> f
 
 
 def build_node_view(conn, row: dict[str, Any], alerts: AlertConfig) -> dict[str, Any]:
+    monitoring_enabled = bool(row.get("monitoring_enabled", 1))
     quota_bytes = row.get("quota_bytes")
     used_bytes = bytes_for_mode(
         row.get("period_rx_bytes"),
@@ -43,14 +45,20 @@ def build_node_view(conn, row: dict[str, Any], alerts: AlertConfig) -> dict[str,
     stale = True
     if collected_at:
         stale = datetime.now(UTC) - collected_at > timedelta(minutes=alerts.stale_after_minutes)
+    if not monitoring_enabled:
+        stale = False
 
     forecast = forecast_exhaustion(conn, row["id"], quota_bytes, row.get("counting_mode", "total"), alerts)
-    status = status_for_node(
-        stale=stale,
-        disk_used_percent=disk_used_percent,
-        traffic_remaining_percent=traffic_remaining_percent,
-        alerts=alerts,
-    )
+    status = "paused"
+    if monitoring_enabled:
+        status = status_for_node(
+            stale=stale,
+            disk_used_percent=disk_used_percent,
+            traffic_remaining_percent=traffic_remaining_percent,
+            alerts=alerts,
+        )
+    effective_interval = db.effective_check_interval(conn, row)
+    applied_interval = row.get("applied_check_interval_seconds")
 
     return {
         "id": row["id"],
@@ -63,6 +71,13 @@ def build_node_view(conn, row: dict[str, Any], alerts: AlertConfig) -> dict[str,
         "last_reported_at": row.get("collected_at"),
         "status": status,
         "stale": stale,
+        "monitoring_enabled": monitoring_enabled,
+        "monitoring_paused_at": row.get("monitoring_paused_at"),
+        "check_interval_seconds_override": row.get("check_interval_seconds_override"),
+        "effective_check_interval_seconds": effective_interval,
+        "applied_check_interval_seconds": applied_interval,
+        "check_interval_applied_at": row.get("check_interval_applied_at"),
+        "check_interval_synced": applied_interval == effective_interval,
         "cpu_percent": row.get("cpu_percent"),
         "memory_total_bytes": row.get("memory_total_bytes"),
         "memory_used_bytes": row.get("memory_used_bytes"),

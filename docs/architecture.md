@@ -14,13 +14,29 @@ The packages intentionally do not import each other. Their contract is the HTTP 
 - `GET /api/v1/app/nodes`
 - `GET /api/v1/app/nodes/{id}`
 - `GET /api/v1/app/alerts`
+- `GET /api/v1/app/settings`
+- `PUT /api/v1/app/settings/check-interval`
+- `PATCH /api/v1/app/nodes/{id}/settings`
+
+The controller also serves the built web console from the same origin when static assets are present in the package.
 
 ## Refresh Model
 
-- Agent timer: every 15 minutes.
+- Agent timer: controller-managed target interval from 1 to 86400 seconds, defaulting to 900 seconds.
 - Controller stale threshold: 45 minutes.
 - Controller alert check timer: every 15 minutes, needed for offline detection even when no new reports arrive.
 - iOS app later reads controller cache and should not drive collection.
+
+Agents still have no inbound API. A changed check interval is returned in the next report response, and the agent updates its own `vpsmon-agent.timer`. The controller marks interval sync as complete after a later report includes the applied local timer interval.
+
+## Monitoring Pause
+
+The web console can pause monitoring per node. This is a controller-side pause, not a remote shutdown of the child VPS agent. While paused:
+
+- reports are authenticated and accepted but not inserted into `reports`;
+- existing open alerts for the node are resolved;
+- new stale, traffic, disk, and forecast alerts are skipped;
+- the node is returned with status `paused` and can be resumed from the web console.
 
 ## Extension Points
 

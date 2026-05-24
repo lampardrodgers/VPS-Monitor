@@ -48,6 +48,15 @@ def main() -> None:
     delete_parser.add_argument("--config", required=True)
     delete_parser.add_argument("--id", required=True)
 
+    update_parser = subparsers.add_parser("update-node")
+    update_parser.add_argument("--config", required=True)
+    update_parser.add_argument("--id", required=True)
+    update_parser.add_argument("--name")
+    update_parser.add_argument("--provider")
+    update_parser.add_argument("--country")
+    update_parser.add_argument("--quota-gb", type=float)
+    update_parser.add_argument("--clear-quota", action="store_true")
+
     list_parser = subparsers.add_parser("list-nodes")
     list_parser.add_argument("--config", required=True)
     list_parser.add_argument("--json", action="store_true")
@@ -130,6 +139,24 @@ def main() -> None:
         elif args.command == "delete-node":
             deleted = db.delete_node(conn, args.id)
             print(json.dumps({"node_id": args.id, "deleted": deleted}, indent=2))
+        elif args.command == "update-node":
+            if args.quota_gb is not None and args.clear_quota:
+                raise SystemExit("--quota-gb and --clear-quota cannot be used together")
+            quota_gb = None if args.clear_quota else args.quota_gb
+            if args.quota_gb is None and not args.clear_quota:
+                quota_gb = db._UNSET
+            updated = db.update_node_metadata(
+                conn,
+                args.id,
+                name=args.name,
+                provider=args.provider,
+                country=args.country,
+                quota_gb=quota_gb,
+            )
+            if not updated:
+                raise SystemExit(f"Node not found: {args.id}")
+            node = db.node_by_id(conn, args.id)
+            print(json.dumps(node, indent=2))
         elif args.command == "list-nodes":
             nodes = db.nodes_with_latest(conn)
             if args.json:

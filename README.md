@@ -11,9 +11,9 @@ The iOS app remains in `VPSMonitor/`, but the server and agent are intentionally
 
 ## Architecture
 
-- Agents have no inbound API. A systemd timer runs `vpsmon-agent once` every 15 minutes.
+- Agents have no inbound API. A systemd timer runs `vpsmon-agent once`; the controller can set the target interval from `1s` to `86400s`.
 - Agents collect CPU, memory, disk, network counters, and `vnStat` monthly bandwidth when available.
-- The controller receives signed reports, stores them in SQLite, evaluates quota/disk/offline alerts, and exposes app read APIs.
+- The controller receives signed reports, stores them in SQLite, evaluates quota/disk/offline alerts, exposes app APIs, and serves the built web console when packaged.
 - Telegram/Bark alerting is handled by the controller, not the iOS app.
 
 More detail: [docs/architecture.md](docs/architecture.md).
@@ -45,6 +45,8 @@ python -m pip install ./packages/controller
 vpsmon-controller init-db --config config/controller.example.yaml
 vpsmon-controller serve --config config/controller.example.yaml --host 127.0.0.1 --port 8080
 ```
+
+Open `http://127.0.0.1:8080/` for the web console after the frontend has been built into the controller package.
 
 For a production VPS after this repo is published:
 
@@ -80,6 +82,8 @@ sudo /opt/vpsmonitor/controller/venv/bin/vpsmon-controller create-app-token \
   --base-url https://monitor.example.com
 ```
 
+Use the generated app token in the web console. The browser stores it in `localStorage` so the console remains available after refresh.
+
 View and revoke nodes:
 
 ```bash
@@ -109,7 +113,7 @@ curl -fsSL https://raw.githubusercontent.com/yourname/VPSMonitor/main/scripts/in
   bash
 ```
 
-The installer creates `/etc/vpsmonitor/agent.yaml`, installs `vnStat`, and enables `vpsmon-agent.timer`.
+The installer creates `/etc/vpsmonitor/agent.yaml`, installs `vnStat`, and enables `vpsmon-agent.timer`. The initial check interval defaults to 900 seconds and can later be changed from the web console.
 
 Disconnect an agent locally:
 
@@ -142,6 +146,18 @@ Build local npm artifacts:
 ```bash
 bash scripts/build-npm-packages.sh
 ```
+
+Both package build scripts refresh the web bundle first. Set `SKIP_WEB_BUILD=1` only when intentionally building server packages without a refreshed web console.
+
+## Web Console
+
+The web console is served by the controller under the same origin as the API. It supports:
+
+- token login with the controller app bearer token;
+- manual refresh and a browser-only auto-refresh interval;
+- summary cards, node table, node detail history, and alerts;
+- global and per-node agent check intervals from `1s` to `86400s`;
+- per-node monitoring pause/resume. Paused nodes are shown as `paused`, do not generate alerts, and incoming agent reports are accepted but not stored until monitoring is resumed.
 
 Publishing npm packages requires an npm account with access to the `@sunjiehao` scope. See [docs/npm-publish.md](docs/npm-publish.md).
 

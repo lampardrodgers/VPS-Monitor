@@ -14,6 +14,9 @@ def evaluate_alerts_for_node(conn: Connection, node_id: str, config: AlertConfig
     if not row:
         return []
     node = build_node_view(conn, row, config)
+    if not node["monitoring_enabled"]:
+        db.resolve_alerts(conn, node_id, set())
+        return []
     candidates: list[dict[str, str]] = []
 
     if node["stale"]:

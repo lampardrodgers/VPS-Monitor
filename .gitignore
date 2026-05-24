@@ -14,6 +14,7 @@ build/
 *.egg-info/
 npm/*/vendor/
 npm/*/*.tgz
+node_modules/
 .pytest_cache/
 .env
 controller.local.yaml

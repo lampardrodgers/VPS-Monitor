@@ -7,7 +7,10 @@ It provides:
 - FastAPI app receiving agent reports.
 - SQLite storage.
 - App-facing read API.
+- Same-origin web console static hosting.
 - Traffic, disk, stale-node, and forecast alerts.
+- Global and per-node agent check interval settings from `1s` to `86400s`.
+- Per-node monitoring pause/resume.
 - Telegram and Bark notification hooks.
 
 ## Install
