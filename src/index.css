@@ -1,0 +1,203 @@
+@import 'tailwindcss';
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* ---------------------------------------------------------------------------
+   设计令牌：浅色为默认值，`.dark` 覆盖。所有组件只使用语义色，不写死具体色值，
+   新增主题时只需要在这里增加一组变量。
+--------------------------------------------------------------------------- */
+:root {
+  --bg: #eef1f5;
+  --bg-grid: rgba(15, 23, 42, 0.05);
+  --panel: #ffffff;
+  --panel-soft: #f6f8fa;
+  --panel-hover: #f1f5f9;
+  --border: #dde3ea;
+  --border-strong: #c3ccd8;
+  --text: #10161d;
+  --text-dim: #4a5766;
+  --text-faint: #7b8794;
+  --accent: #0b74c4;
+  --accent-soft: rgba(11, 116, 196, 0.12);
+  --ok: #17803d;
+  --ok-soft: rgba(23, 128, 61, 0.12);
+  --warn: #9a6400;
+  --warn-soft: rgba(154, 100, 0, 0.14);
+  --crit: #c0322b;
+  --crit-soft: rgba(192, 50, 43, 0.12);
+  --muted: #6b7686;
+  --muted-soft: rgba(107, 118, 134, 0.12);
+  --chart-1: #0b74c4;
+  --chart-2: #7a5af8;
+  --chart-3: #0f8f78;
+  --chart-4: #b4690e;
+  --chart-grid: rgba(15, 23, 42, 0.09);
+}
+
+.dark {
+  --bg: #070a0f;
+  --bg-grid: rgba(148, 190, 255, 0.045);
+  --panel: #0e141c;
+  --panel-soft: #121a24;
+  --panel-hover: #16202c;
+  --border: #1d2833;
+  --border-strong: #2c3b4b;
+  --text: #e6edf5;
+  --text-dim: #97a7b8;
+  --text-faint: #6a7a8c;
+  --accent: #3fb6f0;
+  --accent-soft: rgba(63, 182, 240, 0.14);
+  --ok: #3fb950;
+  --ok-soft: rgba(63, 185, 80, 0.14);
+  --warn: #d6a020;
+  --warn-soft: rgba(214, 160, 32, 0.15);
+  --crit: #f2564b;
+  --crit-soft: rgba(242, 86, 75, 0.15);
+  --muted: #7d8b9c;
+  --muted-soft: rgba(125, 139, 156, 0.16);
+  --chart-1: #3fb6f0;
+  --chart-2: #a78bfa;
+  --chart-3: #37d3a6;
+  --chart-4: #eab543;
+  --chart-grid: rgba(148, 178, 214, 0.12);
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-panel: var(--panel);
+  --color-panel-soft: var(--panel-soft);
+  --color-panel-hover: var(--panel-hover);
+  --color-line: var(--border);
+  --color-line-strong: var(--border-strong);
+  --color-fg: var(--text);
+  --color-fg-dim: var(--text-dim);
+  --color-fg-faint: var(--text-faint);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --color-ok: var(--ok);
+  --color-ok-soft: var(--ok-soft);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-crit: var(--crit);
+  --color-crit-soft: var(--crit-soft);
+  --color-muted: var(--muted);
+  --color-muted-soft: var(--muted-soft);
+
+  --font-mono: ui-monospace, 'SF Mono', SFMono-Regular, 'JetBrains Mono', Menlo, Consolas,
+    'Liberation Mono', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Hiragino Sans GB',
+    'Microsoft YaHei', Roboto, 'Helvetica Neue', Arial, sans-serif;
+
+  --radius-panel: 0.5rem;
+}
+
+@layer base {
+  html {
+    background-color: var(--bg);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(to right, var(--bg-grid) 1px, transparent 1px),
+      linear-gradient(to bottom, var(--bg-grid) 1px, transparent 1px);
+    background-size: 48px 48px;
+    color: var(--text);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* 纯数值（容量、百分比、速率）：等宽字体 + 等宽数字，保证纵向对齐。 */
+  .tnum {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  /* 中英混排（“3 分钟前”“共 5 台”）：只锁定数字宽度，不切换字体，避免中文被拉散。 */
+  .tabnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+    border-radius: 3px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--border-strong);
+    border: 3px solid transparent;
+    background-clip: content-box;
+    border-radius: 999px;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+      animation-duration: 0.001ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.001ms !important;
+    }
+  }
+}
+
+@layer utilities {
+  .panel {
+    background-color: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 0.5rem;
+  }
+
+  .hairline {
+    border-color: var(--border);
+  }
+
+  .pulse-dot {
+    animation: pulse-dot 2.4s ease-in-out infinite;
+  }
+
+  @keyframes pulse-dot {
+    0%,
+    100% {
+      opacity: 1;
+    }
+    50% {
+      opacity: 0.35;
+    }
+  }
+
+  .skeleton {
+    background: linear-gradient(
+      90deg,
+      var(--panel-soft) 0%,
+      var(--panel-hover) 50%,
+      var(--panel-soft) 100%
+    );
+    background-size: 200% 100%;
+    animation: skeleton-shimmer 1.4s ease-in-out infinite;
+  }
+
+  @keyframes skeleton-shimmer {
+    0% {
+      background-position: 200% 0;
+    }
+    100% {
+      background-position: -200% 0;
+    }
+  }
+}
