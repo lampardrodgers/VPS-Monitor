@@ -1,0 +1,57 @@
+# vpsmonitor 配置模板
+#
+# 推荐运行 scripts/configure.sh，在源码目录外生成 providers.yaml 和 secrets.env。
+# 密钥必须通过环境变量引用；不要把真实密钥直接写进此文件或提交 Git。
+# 没准备好的供应商先设置 enabled: false。
+
+storage:
+  database: ~/.local/share/vpsmonitor/vpsmonitor.sqlite3
+
+poll:
+  # 供应商 API 不是主机 agent；5 分钟可兼顾指标新鲜度和限流风险。
+  interval_seconds: 300
+  timeout_seconds: 20
+
+providers:
+  bandwagon:
+    enabled: false
+    instances:
+      - name: 示例节点
+        veid: "CHANGE_ME"
+        api_key:
+          env: VPSMON_BANDWAGON_API_KEY_1
+
+  # 此采集器适用于轻量应用服务器（SWAS），不是 ECS。
+  aliyun_swas:
+    enabled: false
+    region_id: cn-hangzhou
+    instance_ids: []  # 留空自动发现该地域实例
+    access_key_id:
+      env: VPSMON_ALIYUN_ACCESS_KEY_ID
+    access_key_secret:
+      env: VPSMON_ALIYUN_ACCESS_KEY_SECRET
+
+  panstar:
+    enabled: false
+    base_url: https://panstar.ai
+    token:
+      env: VPSMON_PANSTAR_TOKEN
+
+  greencloud:
+    enabled: false
+    base_url: https://cp.green.cloud
+    token:
+      env: VPSMON_GREENCLOUD_TOKEN
+    # GreenCloud VirtFusion API；state=true 同时返回运行状态和周期流量。
+    servers_path: /api/server
+    detail_path: /api/server/{id}?state=true
+
+  dedione:
+    enabled: false
+    base_url: https://manage.example.invalid:4083
+    vps_ids: []  # 留空通过 List VPS 自动发现
+    api_key:
+      env: VPSMON_DEDIONE_API_KEY
+    api_pass:
+      env: VPSMON_DEDIONE_API_PASS
+    verify_tls: true
