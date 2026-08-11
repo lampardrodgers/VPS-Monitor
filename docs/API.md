@@ -3,7 +3,8 @@
 ## 1. 用途与访问方式
 
 该 API 从 VPS 上的 SQLite 监控数据库读取数据，供本地 Web、桌面 App 或脚本展示。
-它不会调用供应商控制操作，也不会返回 Token、API Key、登录密码或原始供应商响应。
+监控数据接口只读，只有留存期限允许更新。它不会调用供应商控制操作，也不会返回 Token、
+API Key、登录密码或原始供应商响应。
 
 生产服务只监听服务器的 `127.0.0.1:18787`。先从本地电脑建立 SSH 隧道，
 映射为本地的 `8787` 端口：
@@ -26,12 +27,15 @@ curl http://127.0.0.1:8787/health
 
 ## 2. 通用约定
 
-- 所有接口均为只读 `GET`。
+- 除留存设置的 `PUT` 外，监控接口均为只读 `GET`。
 - 时间使用 UTC ISO 8601。
 - 容量和流量使用 Byte；网络速率使用 bit/s（`_bps`）。
 - 某供应商不提供某项数据时字段会被省略，前端不能把缺失值当成 `0`。
 - 后端每 5 分钟采集，前端每 60 秒刷新最新值即可。
 - 响应永远不包含 `raw` 字段。
+- 供应商成功采集后，本轮未再出现的实例会标记为已移除；默认列表和总览只统计活跃实例。
+- 5 分钟粒度历史默认保留 7 天；每台实例始终保留最后一条状态。
+- 供应商完整原始响应不落盘，API 只读取规范化后的指标。
 
 ## 3. 两种数据读取模式
 
@@ -39,6 +43,8 @@ curl http://127.0.0.1:8787/health
 
 `/api/v1/summary`、`/api/v1/providers`、`/api/v1/instances` 和历史接口读取服务器
 SQLite 中最近一次采集结果，不会在每个 HTTP 请求中访问供应商。适合总览、列表和历史图表。
+历史保留期限由服务端设置决定，初始默认 7 天。客户端请求更长时间范围不会报错，但只会
+返回仍在保留期内的数据。
 
 ### 阿里云实时接口
 
@@ -88,6 +94,14 @@ GET /api/v1/live/aliyun_swas
 - 最小间隔由 `VPSMON_LIVE_MIN_INTERVAL_SECONDS` 配置，且不会低于 30 秒。
 - AccessKey 只在服务器读取，前端请求中不需要也绝不能携带阿里云 AK。
 - 阿里云调用失败返回 HTTP `502`，配置不可用返回 `503`。
+
+### RackNerd / SolusVM 字段范围
+
+RackNerd 使用每台 VPS 独立的 SolusVM 1 Client API 凭据。采集器仅调用只读的 `info` 和
+`status`：可获得在线状态、主 IP、主机名、磁盘总量以及周期流量总额、已用和剩余。部分
+KVM 套餐的内存会返回 `0,0,0,0`，磁盘已用也可能固定返回 0，因此后端会省略这些不可靠的占用
+值；该接口也不提供 CPU 使用率和实时网络速率。虽然同一套凭据可能支持电源控制，本项目
+不调用也不暴露这些动作。
 
 常见 `metrics`：
 
@@ -171,6 +185,7 @@ GET /api/v1/live/aliyun_swas
 | `provider` | string | - | 精确匹配供应商 |
 | `status` | string | - | 精确匹配状态，不区分大小写 |
 | `search` | string | - | 搜索实例名称或标识 |
+| `include_removed` | boolean | `false` | 是否同时返回已移除实例 |
 | `offset` | integer | `0` | 分页偏移 |
 | `limit` | integer | `100` | 1–500 |
 
@@ -190,6 +205,8 @@ GET /api/v1/instances?provider=panstar&limit=50
       "display_name": "Example VPS",
       "observed_at": "2026-08-10T03:30:17+00:00",
       "status": "READY",
+      "active": true,
+      "removed_at": null,
       "metrics": {
         "memory_total_bytes": 536870912,
         "disk_total_bytes": 10737418240
@@ -205,12 +222,23 @@ GET /api/v1/instances?provider=panstar&limit=50
 }
 ```
 
+查询已经从供应商删除、但仍保留历史的实例：
+
+```text
+GET /api/v1/instances?include_removed=true
+```
+
+已移除实例返回 `active=false` 和首次确认缺失的 `removed_at`。供应商 API 临时采集失败时
+不会改变库存状态，只有成功采集才能把实例标记为已移除。
+
 ## 7. 单个实例
 
 ### `GET /api/v1/instances/{provider}/{instance_key}`
 
 响应结构与实例列表中的单个 `items[]` 相同。不存在时返回 HTTP `404`：
 `{"detail":"实例不存在"}`。
+
+已移除实例仍可通过其原有 `provider` 和 `instance_key` 查询详情。
 
 ## 8. 历史曲线
 
@@ -228,6 +256,8 @@ GET /api/v1/instances?provider=panstar&limit=50
   "provider": "aliyun_swas",
   "instance_key": "example-instance",
   "hours": 24,
+  "active": true,
+  "removed_at": null,
   "points": [
     {
       "observed_at": "2026-08-10T03:25:17+00:00",
@@ -245,6 +275,10 @@ GET /api/v1/instances?provider=panstar&limit=50
 ```
 
 历史接口不会补点。图表遇到缺失字段应显示断点，不能补成零。
+
+Web 中点击实例卡片后，详情抽屉底部的“历史曲线”可切换 24 小时、7 天和 30 天；
+macOS 菜单栏 App 中点击实例进入详情，也有相同时间范围。已移除实例默认不再出现在
+总览，可先用 `include_removed=true` 找到原实例标识，再直接请求其历史接口。
 
 ## 9. 总览
 
@@ -265,7 +299,29 @@ GET /api/v1/instances?provider=panstar&limit=50
 
 `traffic_total_bytes` 只汇总有固定配额的实例；无限流量实例单独计数。
 
-## 10. CORS 与错误
+## 10. 留存设置
+
+### `GET /api/v1/settings/retention`
+
+```json
+{
+  "history_retention_days": 7,
+  "run_retention_days": 30,
+  "updated_at": "2026-08-11T02:00:00+00:00"
+}
+```
+
+### `PUT /api/v1/settings/retention`
+
+```json
+{"history_retention_days":30,"run_retention_days":90}
+```
+
+两个值都允许 1–3650 天。设置写入 SQLite，由后台采集器每轮读取；Web 和 Mac 修改的是
+同一份服务端设置。缩短期限会立即清理过期数据，之后再调大不能恢复已经删除的曲线。
+每台实例和每家供应商始终额外保留最后一条状态。
+
+## 11. CORS 与错误
 
 允许 `localhost` 和 `127.0.0.1` 的 HTTP/HTTPS 任意端口。其他来源不会获得 CORS
 许可。API 不使用 Cookie，也不需要前端保存密钥。
@@ -275,7 +331,7 @@ GET /api/v1/instances?provider=panstar&limit=50
 - `422`：查询参数不符合范围。
 - `503`：数据库或阿里云实时查询配置不可用。
 
-## 11. 服务维护
+## 12. 服务维护
 
 ```bash
 systemctl status vpsmonitor-api

@@ -6,6 +6,10 @@
 
 storage:
   database: ~/.local/share/vpsmonitor/vpsmonitor.sqlite3
+  # 5 分钟粒度曲线保留 7 天；每台实例始终额外保留最后一条状态。
+  history_retention_days: 7
+  # 供应商采集成功/失败记录比曲线小，保留 30 天便于排查。
+  run_retention_days: 30
 
 poll:
   # 供应商 API 不是主机 agent；5 分钟可兼顾指标新鲜度和限流风险。
@@ -13,6 +17,18 @@ poll:
   timeout_seconds: 20
 
 providers:
+  racknerd:
+    enabled: false
+    base_url: https://nerdvm.racknerd.com/api/client/command.php
+    # SolusVM Client API 凭据按 VPS 分配；新增机器时继续追加数组项。
+    instances:
+      - name: RackNerd 示例节点
+        instance_id: racknerd-1
+        api_key:
+          env: VPSMON_RACKNERD_API_KEY_1
+        api_hash:
+          env: VPSMON_RACKNERD_API_HASH_1
+
   bandwagon:
     enabled: false
     instances:

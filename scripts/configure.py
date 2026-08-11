@@ -79,6 +79,21 @@ def _configure(template_path: Path) -> tuple[dict[str, Any], dict[str, str], lis
     }
     enabled: list[str] = []
 
+    if _yes_no("启用 RackNerd / SolusVM"):
+        provider = providers["racknerd"]
+        provider["enabled"] = True
+        provider["instances"] = [
+            {
+                "name": _text("节点显示名称", default="RackNerd 示例节点"),
+                "instance_id": _text("本地实例标识", default="racknerd-1"),
+                "api_key": {"env": "VPSMON_RACKNERD_API_KEY_1"},
+                "api_hash": {"env": "VPSMON_RACKNERD_API_HASH_1"},
+            }
+        ]
+        secrets["VPSMON_RACKNERD_API_KEY_1"] = _secret("RackNerd API Key")
+        secrets["VPSMON_RACKNERD_API_HASH_1"] = _secret("RackNerd API Hash")
+        enabled.append("racknerd")
+
     if _yes_no("启用 BandwagonHost / KiwiVM"):
         provider = providers["bandwagon"]
         provider["enabled"] = True

@@ -1266,7 +1266,7 @@ wheels = [
 
 [[package]]
 name = "vpsmonitor"
-version = "0.2.0"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "alibabacloud-swas-open20200601" },

@@ -19,6 +19,7 @@ from . import __version__
 from .collectors import AliyunSwasCollector
 from .collectors.base import ProviderError
 from .config import ConfigError, default_config_path, load_config, secret_env_path
+from .db import MAX_RETENTION_DAYS, MIN_RETENTION_DAYS, Database
 
 
 class ServiceInfo(BaseModel):
@@ -55,6 +56,8 @@ class InstanceObservation(BaseModel):
     metrics: dict[str, Any] = Field(default_factory=dict)
     quota: dict[str, Any] = Field(default_factory=dict)
     metadata: dict[str, Any] = Field(default_factory=dict)
+    active: bool = True
+    removed_at: str | None = None
 
 
 class InstanceListResponse(BaseModel):
@@ -75,6 +78,8 @@ class InstanceHistoryResponse(BaseModel):
     provider: str
     instance_key: str
     hours: int
+    active: bool = True
+    removed_at: str | None = None
     points: list[HistoryPoint]
 
 
@@ -98,6 +103,17 @@ class SummaryResponse(BaseModel):
     traffic_total_bytes: int
 
 
+class RetentionSettingsResponse(BaseModel):
+    history_retention_days: int
+    run_retention_days: int
+    updated_at: str | None = None
+
+
+class RetentionSettingsUpdate(BaseModel):
+    history_retention_days: int = Field(ge=MIN_RETENTION_DAYS, le=MAX_RETENTION_DAYS)
+    run_retention_days: int = Field(ge=MIN_RETENTION_DAYS, le=MAX_RETENTION_DAYS)
+
+
 def create_app(config_path: str | Path | None = None) -> FastAPI:
     selected_config = Path(config_path).expanduser() if config_path else default_config_path()
     load_dotenv(secret_env_path(), override=False)
@@ -110,10 +126,10 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         minimum=30,
     )
     application = FastAPI(
-        title="VPS Monitor Read API",
+        title="VPS Monitor API",
         summary="统一读取多供应商 VPS 状态、资源指标和流量历史",
         description=(
-            "只读 API。响应不会包含供应商 Token、密码或原始供应商响应。"
+            "监控数据接口只读，仅留存设置允许更新。响应不会包含供应商 Token、密码或原始供应商响应。"
             "生产部署仅监听 127.0.0.1，并通过 SSH 隧道访问。"
         ),
         version=__version__,
@@ -126,13 +142,14 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             {"name": "instances", "description": "实例最新数据与历史曲线"},
             {"name": "live", "description": "按服务端最小间隔查询供应商 API"},
             {"name": "summary", "description": "总览统计"},
+            {"name": "settings", "description": "监控历史与日志留存设置"},
         ],
     )
     application.add_middleware(
         CORSMiddleware,
         allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
         allow_credentials=False,
-        allow_methods=["GET", "OPTIONS"],
+        allow_methods=["GET", "PUT", "OPTIONS"],
         allow_headers=["Accept", "Content-Type", "Cache-Control", "Pragma"],
         max_age=3600,
     )
@@ -177,10 +194,10 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
                 row["provider"]: row["count"]
                 for row in connection.execute(
                     """
-                    SELECT provider, COUNT(*) AS count FROM (
-                        SELECT provider, instance_key, MAX(id)
-                        FROM observations GROUP BY provider, instance_key
-                    ) GROUP BY provider
+                    SELECT provider, COUNT(*) AS count
+                    FROM provider_inventory
+                    WHERE active = 1
+                    GROUP BY provider
                     """
                 ).fetchall()
             }
@@ -217,10 +234,14 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         provider: str | None = Query(default=None, description="按供应商标识过滤"),
         status: str | None = Query(default=None, description="按实例状态过滤，不区分大小写"),
         search: str | None = Query(default=None, description="搜索实例名称或实例标识"),
+        include_removed: bool = Query(
+            default=False,
+            description="是否同时返回供应商已删除、但仍保留历史的实例",
+        ),
         offset: int = Query(default=0, ge=0),
         limit: int = Query(default=100, ge=1, le=500),
     ) -> InstanceListResponse:
-        rows = _latest_rows(database_path())
+        rows = _latest_rows(database_path(), include_removed=include_removed)
         if provider:
             rows = [row for row in rows if row["provider"] == provider]
         if status:
@@ -252,11 +273,14 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
         with _connect_or_503(database_path()) as connection:
             row = connection.execute(
                 """
-                SELECT provider, instance_key, display_name, observed_at, status,
-                       metrics_json, quota_json, metadata_json
-                FROM observations
-                WHERE provider = ? AND instance_key = ?
-                ORDER BY id DESC LIMIT 1
+                SELECT o.provider, o.instance_key, o.display_name, o.observed_at, o.status,
+                       o.metrics_json, o.quota_json, o.metadata_json,
+                       COALESCE(i.active, 1) AS active, i.removed_at
+                FROM observations o
+                LEFT JOIN provider_inventory i
+                  ON i.provider = o.provider AND i.instance_key = o.instance_key
+                WHERE o.provider = ? AND o.instance_key = ?
+                ORDER BY o.id DESC LIMIT 1
                 """,
                 (provider, instance_key),
             ).fetchone()
@@ -277,11 +301,18 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
     ) -> InstanceHistoryResponse:
         since = (datetime.now(UTC) - timedelta(hours=hours)).isoformat(timespec="seconds")
         with _connect_or_503(database_path()) as connection:
-            exists = connection.execute(
-                "SELECT 1 FROM observations WHERE provider = ? AND instance_key = ? LIMIT 1",
+            inventory = connection.execute(
+                """
+                SELECT COALESCE(i.active, 1) AS active, i.removed_at
+                FROM observations o
+                LEFT JOIN provider_inventory i
+                  ON i.provider = o.provider AND i.instance_key = o.instance_key
+                WHERE o.provider = ? AND o.instance_key = ?
+                ORDER BY o.id DESC LIMIT 1
+                """,
                 (provider, instance_key),
             ).fetchone()
-            if exists is None:
+            if inventory is None:
                 raise HTTPException(status_code=404, detail="实例不存在")
             rows = connection.execute(
                 """
@@ -299,6 +330,8 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             provider=provider,
             instance_key=instance_key,
             hours=hours,
+            active=bool(inventory["active"]),
+            removed_at=inventory["removed_at"],
             points=[
                 HistoryPoint(
                     observed_at=row["observed_at"],
@@ -408,6 +441,54 @@ def create_app(config_path: str | Path | None = None) -> FastAPI:
             ),
         )
 
+    @application.get(
+        "/api/v1/settings/retention",
+        response_model=RetentionSettingsResponse,
+        tags=["settings"],
+    )
+    def retention_settings() -> RetentionSettingsResponse:
+        config = load_config(selected_config)
+        try:
+            database = Database(
+                config.database_path,
+                history_retention_days=config.history_retention_days,
+                run_retention_days=config.run_retention_days,
+            )
+            try:
+                return RetentionSettingsResponse(**database.retention_settings())
+            finally:
+                database.close()
+        except (OSError, sqlite3.Error, ValueError):
+            raise HTTPException(status_code=503, detail="无法读取留存设置") from None
+
+    @application.put(
+        "/api/v1/settings/retention",
+        response_model=RetentionSettingsResponse,
+        tags=["settings"],
+        summary="更新历史和采集日志保留天数",
+    )
+    def update_retention_settings(
+        request: RetentionSettingsUpdate,
+    ) -> RetentionSettingsResponse:
+        config = load_config(selected_config)
+        try:
+            database = Database(
+                config.database_path,
+                history_retention_days=config.history_retention_days,
+                run_retention_days=config.run_retention_days,
+            )
+            try:
+                settings = database.update_retention_settings(
+                    history_retention_days=request.history_retention_days,
+                    run_retention_days=request.run_retention_days,
+                )
+                database.prune_history()
+                return RetentionSettingsResponse(**settings)
+            finally:
+                database.close()
+        except (OSError, sqlite3.Error, ValueError):
+            raise HTTPException(status_code=503, detail="无法更新留存设置") from None
+
     return application
 
 
@@ -424,17 +505,21 @@ def _connect_or_503(path: Path) -> sqlite3.Connection:
         raise HTTPException(status_code=503, detail="监控数据库不可用") from None
 
 
-def _latest_rows(path: Path) -> list[dict[str, Any]]:
+def _latest_rows(path: Path, *, include_removed: bool = False) -> list[dict[str, Any]]:
     with _connect_or_503(path) as connection:
         rows = connection.execute(
-            """
+            f"""
             SELECT o.provider, o.instance_key, o.display_name, o.observed_at,
-                   o.status, o.metrics_json, o.quota_json, o.metadata_json
+                   o.status, o.metrics_json, o.quota_json, o.metadata_json,
+                   i.active, i.removed_at
             FROM observations o
             JOIN (
                 SELECT provider, instance_key, MAX(id) AS max_id
                 FROM observations GROUP BY provider, instance_key
             ) latest ON latest.max_id = o.id
+            JOIN provider_inventory i
+              ON i.provider = o.provider AND i.instance_key = o.instance_key
+            {'' if include_removed else 'WHERE i.active = 1'}
             ORDER BY o.provider, o.display_name
             """
         ).fetchall()
@@ -451,6 +536,8 @@ def _decode_api_row(row: sqlite3.Row) -> dict[str, Any]:
         "metrics": json.loads(row["metrics_json"]),
         "quota": json.loads(row["quota_json"]),
         "metadata": json.loads(row["metadata_json"]),
+        "active": bool(row["active"]) if "active" in row.keys() else True,
+        "removed_at": row["removed_at"] if "removed_at" in row.keys() else None,
     }
 
 

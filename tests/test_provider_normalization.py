@@ -3,11 +3,38 @@ from __future__ import annotations
 import unittest
 
 from vpsmonitor.collectors.panstar import PanstarCollector
+from vpsmonitor.collectors.solusvm import RackNerdCollector, _parse_xml_fragment
 from vpsmonitor.collectors.virtualizor import VirtualizorCollector
 from vpsmonitor.collectors.aliyun_swas import AliyunSwasCollector
 
 
 class ProviderNormalizationTests(unittest.TestCase):
+    def test_racknerd_solusvm_info_is_normalized_without_fake_memory(self) -> None:
+        collector = RackNerdCollector({}, timeout=1)
+        info = _parse_xml_fragment(
+            "<ipaddr>203.0.113.42</ipaddr>"
+            "<hdd>107374182400,0,107374182400,0</hdd>"
+            "<bw>1099511627776,274877906944,824633720832,25</bw>"
+            "<mem>0,0,0,0</mem><status>success</status>"
+            "<statusmsg></statusmsg><hostname>racknerd-demo</hostname>"
+        )
+
+        result = collector._observation(
+            {"name": "RackNerd Example", "instance_id": "rn-example"},
+            info,
+            {"status": "success", "statusmsg": "online"},
+        )
+
+        self.assertEqual(result.instance_key, "rn-example")
+        self.assertEqual(result.status, "online")
+        self.assertEqual(result.metrics["disk_total_bytes"], 107374182400)
+        self.assertNotIn("disk_used_bytes", result.metrics)
+        self.assertNotIn("memory_total_bytes", result.metrics)
+        self.assertNotIn("cpu_percent", result.metrics)
+        self.assertEqual(result.quota["traffic_used_bytes"], 274877906944)
+        self.assertEqual(result.quota["traffic_total_bytes"], 1099511627776)
+        self.assertEqual(result.metadata["ip"], "203.0.113.42")
+
     def test_aliyun_bandwidth_plan_is_marked_unlimited(self) -> None:
         collector = AliyunSwasCollector({}, timeout=1)
 

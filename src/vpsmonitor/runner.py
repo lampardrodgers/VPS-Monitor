@@ -8,6 +8,7 @@ from .collectors import (
     AliyunSwasCollector,
     BandwagonCollector,
     PanstarCollector,
+    RackNerdCollector,
     VirtFusionCollector,
     VirtualizorCollector,
 )
@@ -23,6 +24,7 @@ COLLECTORS: dict[str, type[Collector]] = {
     "panstar": PanstarCollector,
     "greencloud": VirtFusionCollector,
     "dedione": VirtualizorCollector,
+    "racknerd": RackNerdCollector,
 }
 
 
@@ -71,6 +73,8 @@ def collect_once(
             )
         database.save_result(result)
         results.append(result)
+    if results:
+        database.prune_history(reference_at=max(item.finished_at for item in results))
     return results
 
 

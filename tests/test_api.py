@@ -68,6 +68,27 @@ class ApiTests(unittest.TestCase):
         self.assertEqual(response.json()["status"], "ok")
         schema = self.client.get("/openapi.json").json()
         self.assertIn("/api/v1/instances", schema["paths"])
+        self.assertIn("/api/v1/settings/retention", schema["paths"])
+
+    def test_retention_settings_can_be_read_and_updated(self) -> None:
+        initial = self.client.get("/api/v1/settings/retention")
+        self.assertEqual(initial.status_code, 200)
+        self.assertEqual(initial.json()["history_retention_days"], 7)
+        self.assertEqual(initial.json()["run_retention_days"], 30)
+
+        updated = self.client.put(
+            "/api/v1/settings/retention",
+            json={"history_retention_days": 14, "run_retention_days": 60},
+        )
+        self.assertEqual(updated.status_code, 200)
+        self.assertEqual(updated.json()["history_retention_days"], 14)
+        self.assertEqual(updated.json()["run_retention_days"], 60)
+
+        invalid = self.client.put(
+            "/api/v1/settings/retention",
+            json={"history_retention_days": 0, "run_retention_days": 30},
+        )
+        self.assertEqual(invalid.status_code, 422)
 
     def test_latest_instances_are_filtered_and_do_not_expose_raw(self) -> None:
         response = self.client.get("/api/v1/instances", params={"search": "example"})
@@ -94,6 +115,77 @@ class ApiTests(unittest.TestCase):
         response = self.client.get("/api/v1/instances/example/missing")
         self.assertEqual(response.status_code, 404)
 
+    def test_removed_instance_is_hidden_but_history_remains_available(self) -> None:
+        root = Path(self.temporary.name)
+        database_path = root / "data" / "monitor.sqlite3"
+        now = datetime.now(UTC).replace(microsecond=0)
+        db = Database(database_path)
+        try:
+            db.save_result(
+                CollectorResult(
+                    provider="example",
+                    started_at=now.isoformat(),
+                    finished_at=now.isoformat(),
+                    observations=[
+                        Observation(
+                            provider="example",
+                            instance_key="vm-1",
+                            display_name="Example VM",
+                            observed_at=now.isoformat(),
+                            status="running",
+                        ),
+                        Observation(
+                            provider="example",
+                            instance_key="vm-old",
+                            display_name="Removed VM",
+                            observed_at=now.isoformat(),
+                            status="running",
+                            metrics={"cpu_percent": 9.0},
+                        ),
+                    ],
+                )
+            )
+            later = (now + timedelta(minutes=5)).isoformat()
+            db.save_result(
+                CollectorResult(
+                    provider="example",
+                    started_at=later,
+                    finished_at=later,
+                    observations=[
+                        Observation(
+                            provider="example",
+                            instance_key="vm-1",
+                            display_name="Example VM",
+                            observed_at=later,
+                            status="running",
+                        )
+                    ],
+                )
+            )
+        finally:
+            db.close()
+
+        current = self.client.get("/api/v1/instances").json()
+        self.assertEqual(current["total"], 1)
+        all_items = self.client.get(
+            "/api/v1/instances", params={"include_removed": "true"}
+        ).json()
+        self.assertEqual(all_items["total"], 2)
+        removed = next(item for item in all_items["items"] if item["instance_key"] == "vm-old")
+        self.assertFalse(removed["active"])
+        self.assertEqual(removed["removed_at"], later)
+
+        providers = self.client.get("/api/v1/providers").json()["items"]
+        self.assertEqual(providers[0]["instance_count"], 1)
+        summary = self.client.get("/api/v1/summary").json()
+        self.assertEqual(summary["instances_total"], 1)
+        history = self.client.get(
+            "/api/v1/instances/example/vm-old/history", params={"hours": 1}
+        ).json()
+        self.assertFalse(history["active"])
+        self.assertEqual(history["removed_at"], later)
+        self.assertEqual(len(history["points"]), 1)
+
     def test_localhost_cors(self) -> None:
         response = self.client.options(
             "/api/v1/instances",
@@ -110,6 +202,16 @@ class ApiTests(unittest.TestCase):
         allowed_headers = response.headers["access-control-allow-headers"].lower()
         self.assertIn("cache-control", allowed_headers)
         self.assertIn("pragma", allowed_headers)
+
+        update = self.client.options(
+            "/api/v1/settings/retention",
+            headers={
+                "Origin": "http://localhost:5173",
+                "Access-Control-Request-Method": "PUT",
+                "Access-Control-Request-Headers": "content-type",
+            },
+        )
+        self.assertEqual(update.status_code, 200)
 
     def test_live_aliyun_coalesces_requests_without_raw(self) -> None:
         config_path = Path(self.temporary.name) / "config" / "providers.yaml"

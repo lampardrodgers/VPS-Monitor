@@ -27,6 +27,7 @@ ProtectKernelTunables=true
 ProtectKernelModules=true
 ProtectControlGroups=true
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadWritePaths=/opt/vpsmonitor/provider-collector/data
 
 [Install]
 WantedBy=multi-user.target

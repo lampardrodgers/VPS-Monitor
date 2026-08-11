@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+## api-v0.3.0 - 2026-08-11
+
+- Added RackNerd through the read-only SolusVM client `info` and `status` actions.
+- Added server-persisted, user-configurable history and collector-log retention.
+- Stopped persisting full provider payloads and retained only normalized observations.
+- Added hardened systemd migration overrides for legacy deployments and writable data paths.
+
 ## api-v0.2.0 - 2026-08-10
 
 - Added an interactive one-command configuration flow with hidden credential input.

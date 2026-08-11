@@ -19,6 +19,8 @@ class ConfigError(RuntimeError):
 class AppConfig:
     path: Path
     database_path: Path
+    history_retention_days: int
+    run_retention_days: int
     poll_interval_seconds: int
     timeout_seconds: float
     providers: dict[str, Any]
@@ -94,6 +96,8 @@ def load_config(path: str | Path) -> AppConfig:
     return AppConfig(
         path=config_path,
         database_path=database_path,
+        history_retention_days=max(1, int(storage.get("history_retention_days", 7))),
+        run_retention_days=max(1, int(storage.get("run_retention_days", 30))),
         poll_interval_seconds=max(30, int(poll.get("interval_seconds", 60))),
         timeout_seconds=max(1.0, float(poll.get("timeout_seconds", 20))),
         providers=providers,

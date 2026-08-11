@@ -23,6 +23,8 @@ SECRET_FIELDS = (
     ("VPSMON_GREENCLOUD_TOKEN", "GreenCloud Token"),
     ("VPSMON_DEDIONE_API_KEY", "DediOne API Key"),
     ("VPSMON_DEDIONE_API_PASS", "DediOne API Pass"),
+    ("VPSMON_RACKNERD_API_KEY_1", "RackNerd API Key"),
+    ("VPSMON_RACKNERD_API_HASH_1", "RackNerd API Hash"),
 )
 
 
@@ -53,7 +55,11 @@ def main(argv: list[str] | None = None) -> int:
             return _setup_secrets(secret_env_path())
         load_dotenv(secret_env_path(), override=False)
         config = load_config(args.config)
-        db = Database(config.database_path)
+        db = Database(
+            config.database_path,
+            history_retention_days=config.history_retention_days,
+            run_retention_days=config.run_retention_days,
+        )
         try:
             if args.command == "collect":
                 results = collect_once(config, db, args.provider)
