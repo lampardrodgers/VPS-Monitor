@@ -34,6 +34,11 @@ interface MockInstance {
 }
 
 const GB = 1024 ** 3
+let retentionSettings = {
+  history_retention_days: 7,
+  run_retention_days: 30,
+  updated_at: new Date().toISOString(),
+}
 
 const INSTANCES: MockInstance[] = [
   {
@@ -224,8 +229,19 @@ function json(body: unknown, status = 200): Response {
   })
 }
 
-function handle(url: URL): Response | undefined {
+function handle(url: URL, init?: RequestInit): Response | undefined {
   const path = url.pathname
+
+  if (path === '/api/v1/settings/retention') {
+    if (init?.method === 'PUT' && typeof init.body === 'string') {
+      const next = JSON.parse(init.body) as {
+        history_retention_days: number
+        run_retention_days: number
+      }
+      retentionSettings = { ...next, updated_at: new Date().toISOString() }
+    }
+    return json(retentionSettings)
+  }
 
   if (path === '/health') {
     return json({
@@ -326,7 +342,7 @@ export function installMockApi(): void {
   window.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const raw = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
     if (raw.startsWith(apiBaseUrl)) {
-      const response = handle(new URL(raw))
+      const response = handle(new URL(raw), init)
       if (response) {
         // 模拟一点点网络延迟，便于观察骨架屏。
         await new Promise((resolve) => setTimeout(resolve, 180))

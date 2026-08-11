@@ -54,7 +54,7 @@ describe('toInstanceView', () => {
 
     expect(view.id).toBe('aliyun_swas/demo-swas-001')
     expect(view.provider.label).toBe('阿里云 SWAS')
-    expect(view.status.kind).toBe('online')
+    expect(view.status.group).toBe('online')
     expect(view.cpuPercent).toBe(2.985)
     expect(view.meta.region).toBe('example-region-1')
     expect(view.meta.plan).toBe('example.swas.plan')

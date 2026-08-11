@@ -15,6 +15,7 @@ import { apiBaseUrl } from '@/api/client'
 import { ApiError, firstError } from '@/api/errors'
 import { useHealth, useRefreshAll } from '@/api/queries'
 import { StatusPill } from '@/components/ui/Badge'
+import { RetentionControl } from '@/components/RetentionControl'
 import { usePreferences, REFRESH_OPTIONS } from '@/hooks/preferences'
 import { cn } from '@/lib/cn'
 import { EMPTY, formatDateTime, formatRelative } from '@/lib/format'
@@ -27,7 +28,7 @@ function healthState(
   if (isPending) return { tone: 'muted', label: '连接中', title: '正在检测本地 API' }
   if (error instanceof ApiError) {
     if (error.isTunnelDown) {
-      return { tone: 'crit', label: '隧道未连接', title: 'fetch 失败：SSH 隧道未连接或 API 未启动' }
+      return { tone: 'crit', label: 'SSH 连接失败', title: '临时 SSH 建立失败或 API 未启动' }
     }
     if (error.isDatabaseDown) {
       return { tone: 'crit', label: '数据库异常', title: 'API 可达，但监控数据库不可用' }
@@ -60,8 +61,8 @@ export function TopBar({
   /** 供应商详情内容，由页面注入；只在弹层展开时挂载，不占用正文空间。 */
   providerPanel: ReactNode
 }) {
-  const { theme, toggleTheme, refreshMs, setRefreshMs } = usePreferences()
-  const health = useHealth()
+  const { theme, toggleTheme, refreshMs, setRefreshMs, refetchInterval } = usePreferences()
+  const health = useHealth(refetchInterval)
   const refreshAll = useRefreshAll()
   const client = useQueryClient()
   const [refreshing, setRefreshing] = useState(false)
@@ -190,6 +191,8 @@ export function TopBar({
               </div>
             ) : null}
           </div>
+
+          <RetentionControl />
 
           <label className="hidden items-center gap-1.5 text-[11px] text-fg-faint md:flex">
             自动刷新

@@ -43,7 +43,7 @@ export function ErrorState({
   className?: string
 }) {
   const { title, hint } = describeApiError(error)
-  const tunnel = title.includes('隧道')
+  const tunnel = title.includes('SSH')
   return (
     <Shell
       className={className}

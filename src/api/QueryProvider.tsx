@@ -3,7 +3,7 @@ import { useState, type ReactNode } from 'react'
 
 import { ApiError } from './errors'
 
-/** 指数退避，上限 5 分钟：隧道长时间断开时不会持续打满请求。 */
+/** 指数退避，上限 5 分钟：SSH 或 API 长时间不可用时不会持续打满请求。 */
 export function retryDelay(attemptIndex: number): number {
   return Math.min(1_000 * 2 ** attemptIndex, 300_000)
 }

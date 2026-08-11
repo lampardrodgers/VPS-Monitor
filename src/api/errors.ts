@@ -1,5 +1,5 @@
 export type ApiErrorKind =
-  /** fetch 本身失败：SSH 隧道断开或 API 未启动。 */
+  /** fetch 本身失败：临时 SSH 建立失败或 API 未启动。 */
   | 'network'
   /** 请求超时。 */
   | 'timeout'
@@ -42,7 +42,11 @@ export class ApiError extends Error {
   }
 
   get isTunnelDown(): boolean {
-    return this.kind === 'network' || this.kind === 'timeout'
+    return (
+      this.kind === 'network' ||
+      this.kind === 'timeout' ||
+      (this.status === 502 && this.detail?.startsWith('临时 SSH 连接失败') === true)
+    )
   }
 
   get isDatabaseDown(): boolean {
@@ -64,7 +68,7 @@ export function isTunnelDown(error: unknown): boolean {
   return error instanceof ApiError && error.isTunnelDown
 }
 
-/** 面向用户的中文错误文案，明确区分“隧道没连”和“API 内部出错”。 */
+/** 面向用户的中文错误文案，明确区分“临时 SSH 失败”和“API 内部出错”。 */
 export function describeApiError(error: unknown): { title: string; hint: string } {
   if (!(error instanceof ApiError)) {
     return {
@@ -74,14 +78,20 @@ export function describeApiError(error: unknown): { title: string; hint: string 
   }
   if (error.kind === 'network') {
     return {
-      title: 'SSH 隧道未连接或 API 未启动',
-      hint: '请在终端执行 ssh -N -L 8787:127.0.0.1:18787 root@<SERVER_IP>，隧道保持运行后重试。',
+      title: '临时 SSH 连接失败或 API 未启动',
+      hint: '刷新时会自动重新建立 SSH；请检查服务器连通性、SSH Key 和远端 API 服务。',
     }
   }
   if (error.kind === 'timeout') {
     return {
       title: '请求超时',
-      hint: 'API 没有在预期时间内响应，隧道可能已经断开或服务器负载过高。',
+      hint: '临时 SSH 或 API 没有在预期时间内响应，请检查服务器连接和负载。',
+    }
+  }
+  if (error.status === 502 && error.detail?.startsWith('临时 SSH 连接失败')) {
+    return {
+      title: '临时 SSH 连接失败',
+      hint: error.detail,
     }
   }
   if (error.status === 503) {

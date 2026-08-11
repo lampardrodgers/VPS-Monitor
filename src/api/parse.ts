@@ -16,6 +16,7 @@ import type {
   MetadataMap,
   ProviderListResponse,
   ProviderStatus,
+  RetentionSettings,
   SummaryResponse,
 } from './types'
 
@@ -177,5 +178,18 @@ export function parseSummary(raw: unknown): SummaryResponse {
     instances_unlimited_traffic: readNumber(record, 'instances_unlimited_traffic', 'summary'),
     traffic_used_bytes: readNumber(record, 'traffic_used_bytes', 'summary'),
     traffic_total_bytes: readNumber(record, 'traffic_total_bytes', 'summary'),
+  }
+}
+
+export function parseRetentionSettings(raw: unknown): RetentionSettings {
+  const record = requireRecord(raw, 'settings.retention')
+  return {
+    history_retention_days: readNumber(
+      record,
+      'history_retention_days',
+      'settings.retention',
+    ),
+    run_retention_days: readNumber(record, 'run_retention_days', 'settings.retention'),
+    updated_at: readOptionalString(record, 'updated_at'),
   }
 }

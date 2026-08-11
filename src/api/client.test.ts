@@ -8,6 +8,8 @@ import {
   fetchInstance,
   fetchInstances,
   fetchLiveAliyun,
+  fetchRetentionSettings,
+  updateRetentionSettings,
 } from '@/api/client'
 import { ApiError, describeApiError } from '@/api/errors'
 import { retryDelay, shouldRetry } from '@/api/QueryProvider'
@@ -88,10 +90,32 @@ describe('请求构造', () => {
     expect(called.pathname).toBe('/api/v1/live/aliyun_swas')
     expect(spy.mock.calls[0]?.[1]?.cache).toBe('no-store')
   })
+
+  it('读取并通过 PUT 更新服务端留存设置', async () => {
+    const spy = stubFetch((_url, init) =>
+      jsonResponse({
+        history_retention_days: init?.method === 'PUT' ? 30 : 7,
+        run_retention_days: 60,
+        updated_at: '2026-08-11T00:00:00+00:00',
+      }),
+    )
+
+    const initial = await fetchRetentionSettings()
+    expect(initial.history_retention_days).toBe(7)
+    const updated = await updateRetentionSettings({
+      history_retention_days: 30,
+      run_retention_days: 60,
+    })
+    expect(updated.history_retention_days).toBe(30)
+    expect(spy.mock.calls[1]?.[1]?.method).toBe('PUT')
+    expect(spy.mock.calls[1]?.[1]?.body).toBe(
+      JSON.stringify({ history_retention_days: 30, run_retention_days: 60 }),
+    )
+  })
 })
 
 describe('错误处理', () => {
-  it('fetch 失败识别为隧道断开', async () => {
+  it('fetch 失败识别为临时 SSH 连接失败', async () => {
     stubFetch(() => {
       throw new TypeError('Failed to fetch')
     })
@@ -99,7 +123,16 @@ describe('错误处理', () => {
 
     const error = await fetchHealth().catch((reason: unknown) => reason)
     expect(error).toBeInstanceOf(ApiError)
-    expect(describeApiError(error).title).toBe('SSH 隧道未连接或 API 未启动')
+    expect(describeApiError(error).title).toBe('临时 SSH 连接失败或 API 未启动')
+  })
+
+  it('Vite 代理返回的 SSH 502 可继续重试', async () => {
+    stubFetch(() => jsonResponse({ detail: '临时 SSH 连接失败：认证失败' }, 502))
+    const error = await fetchHealth().catch((reason: unknown) => reason)
+    if (!(error instanceof ApiError)) throw new Error('应为 ApiError')
+    expect(error.isTunnelDown).toBe(true)
+    expect(error.isTerminal).toBe(false)
+    expect(describeApiError(error).title).toBe('临时 SSH 连接失败')
   })
 
   it('503 带上后端 detail', async () => {

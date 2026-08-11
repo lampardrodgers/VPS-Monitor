@@ -1,7 +1,8 @@
 # VPS 监控中心 · Web 界面
 
-多供应商 VPS 只读监控面板。数据全部来自本机 SSH 隧道后面的
-[只读 API](https://github.com/lampardrodgers/VPS-Monitor/blob/api/docs/API.md)，前端不接触任何供应商 Token，也不执行开关机、重装等控制操作。
+多供应商 VPS 监控面板。数据全部来自本机 SSH 隧道后面的
+[监控 API](https://github.com/lampardrodgers/VPS-Monitor/blob/api/docs/API.md)。监控数据只读，
+仅留存设置使用 PUT；前端不接触任何供应商 Token，也不执行开关机、重装等控制操作。
 
 - React 19 + Vite 7 + TypeScript（strict）
 - TanStack Query 负责请求、缓存、轮询、退避重试
@@ -14,17 +15,20 @@
 # 首次使用：把私有 SSH 配置放在源码目录外
 mkdir -p ~/.config/vpsmonitor/web
 cp .env.example ~/.config/vpsmonitor/web/.env.local
-# 将 VPSMON_AUTO_SSH_TUNNEL 改为 1，并填写 VPSMON_SSH_TARGET
+# 保持 VPSMON_SSH_ON_DEMAND=1，并填写 VPSMON_SSH_TARGET
 
-# 启动前端；SSH 隧道随 Web 一起启动、退出
+# 启动前端；只有发起 API 请求时才会临时连接 SSH
 npm install
 npm run dev
 ```
 
-自动隧道使用 SSH Key 和 `BatchMode`，不会在后台等待密码。首次使用前应先手动执行一次
-`ssh user@<SERVER_IP>`，确认主机指纹并确保 Key 可以免密登录。按 `Ctrl+C` 或正常关闭
-Vite 后，对应的 SSH 子进程也会关闭。若要自行管理隧道，将
-`VPSMON_AUTO_SSH_TUNNEL=0`，再手动执行原来的 `ssh -N -L ...` 命令。
+按需模式使用 SSH Key 和 `BatchMode`，不会在后台等待密码。每轮刷新开始时建立一条临时
+端口转发，同一轮的并发 API 请求共用这条连接，最后一个请求完成后即关闭；Web 服务空闲时不会
+常驻 SSH 进程。正常关闭 Vite 时也会强制清理尚未结束的临时连接。
+
+首次使用前应先手动执行一次 `ssh user@<SERVER_IP>`，确认主机指纹并确保 Key 可以免密登录。
+若要自行管理固定隧道，将 `VPSMON_SSH_ON_DEMAND=0`，把 `VITE_API_BASE_URL` 改回
+`http://127.0.0.1:8787`，再手动执行 `ssh -N -L 8787:127.0.0.1:18787 user@<SERVER_IP>`。
 
 打开终端里输出的地址（默认 <http://127.0.0.1:5273>）。
 
@@ -40,14 +44,15 @@ Vite 后，对应的 SSH 子进程也会关闭。若要自行管理隧道，将
 
 | 变量 | 默认值 | 说明 |
 |---|---|---|
-| `VITE_API_BASE_URL` | `http://127.0.0.1:8787` | 只读 API 地址 |
+| `VITE_API_BASE_URL` | `/__vpsmonitor_api` | 浏览器访问的同源 API 代理路径 |
 | `VITE_USE_MOCK` | 未设置 | 设为 `1` 时用内置假数据，**仅开发模式生效** |
-| `VPSMON_AUTO_SSH_TUNNEL` | `0` | 设为 `1` 时让 Vite 自动管理 SSH 隧道 |
+| `VPSMON_SSH_ON_DEMAND` | `1` | 每轮 API 请求临时建立 SSH，结束后关闭 |
 | `VPSMON_SSH_TARGET` | - | SSH 目标，例如 `root@server.example.com` |
-| `VPSMON_SSH_LOCAL_PORT` | `8787` | 本机隧道端口 |
+| `VPSMON_SSH_LOCAL_PORT` | `0` | 本机转发端口；`0` 表示每轮自动分配空闲端口 |
 | `VPSMON_SSH_REMOTE_HOST` | `127.0.0.1` | VPS 上 API 监听地址 |
 | `VPSMON_SSH_REMOTE_PORT` | `18787` | VPS 上 API 监听端口 |
 | `VPSMON_SSH_IDENTITY_FILE` | SSH 默认配置 | 可选的私钥路径 |
+| `VPSMON_SSH_IDLE_MS` | `500` | 最后一个请求后的并发合并窗口（毫秒） |
 
 可用 `VPSMON_WEB_CONFIG_DIR` 覆盖外部配置目录。项目内 `.env.local` 仍可用于临时开发，
 但已被 Git 忽略，不应打包或提交。
@@ -63,7 +68,7 @@ VITE_USE_MOCK=1 npm run dev     # 无隧道时预览各种状态（含 86% 流�
 
 **总览页**
 
-- 顶栏：API 连接状态、最近采集时间与相对时间、**供应商按钮**、自动刷新间隔、手动刷新、主题切换。
+- 顶栏：API 连接状态、最近采集时间与相对时间、**供应商按钮**、曲线/日志留存设置、自动刷新间隔、手动刷新、主题切换。
 - 供应商按钮显示 `正常数/总数`，有采集失败时变红；点开在按钮下方浮出弹层（不挤压正文），
   列出每家的正常/异常、实例数、最近采集时间和可展开的错误详情，点某一家即按它筛选并收起，
   点弹层外任意位置或按 `Esc` 也会收起。
@@ -112,16 +117,15 @@ VITE_USE_MOCK=1 npm run dev     # 无隧道时预览各种状态（含 86% 流�
 
 | 接口 | 频率 |
 |---|---|
-| `/health` | 30 秒 |
-| `/summary`、`/providers`、`/instances` | 顶栏可选 30 秒 / 1 分钟 / 5 分钟 / 关闭，默认 5 分钟 |
+| `/health`、`/summary`、`/providers`、`/instances` | 顶栏可选 30 秒 / 1 分钟 / 5 分钟 / 关闭，默认 5 分钟 |
 | `/api/v1/live/aliyun_swas` | 页面打开时请求一次，之后跟随顶栏间隔，默认 5 分钟；响应不使用浏览器缓存 |
 | `/instances/{...}/history` | 只在打开详情或切换时间范围时请求 |
 
 - 实例列表一次取回全量（自动翻页），筛选/排序/分页在客户端完成。
 - 页面失去焦点时暂停轮询，重新聚焦立即刷新。
 - 刷新时保留上一轮数据（`keepPreviousData`），不会闪空。
-- 失败按指数退避重试，上限 5 分钟；`404`/`422` 不重试。
-- 出错期间探测间隔自动缩短到 15 秒，隧道恢复后界面会自己回来，不用刷新浏览器。
+- 失败按指数退避重试，上限 5 分钟；`404`/`422` 不重试。每次重试都会新建临时 SSH，
+  连接成功后界面会自动恢复，不需刷新浏览器。
 
 ## 新增 VPS / 新增供应商
 
@@ -154,7 +158,7 @@ web/
 │   ├── api/                   # 类型契约、响应解析、HTTP 客户端、Query hooks
 │   │   ├── types.ts           # 与 docs/API.md 对齐的接口类型
 │   │   ├── parse.ts           # 宽松解析：容忍新字段，拒绝脏数据
-│   │   ├── client.ts          # 只访问 VITE_API_BASE_URL，含超时与全量翻页
+│   │   ├── client.ts          # 访问同源 API 代理，含超时与全量翻页
 │   │   ├── errors.ts          # 区分隧道断开 / 数据库不可用 / 404 / 422
 │   │   └── queries.ts         # 轮询、退避、keepPreviousData
 │   ├── components/            # 顶栏、KPI、供应商、列表、详情抽屉、图表、UI 原语

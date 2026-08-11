@@ -1,4 +1,4 @@
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useCallback } from 'react'
 
 import {
@@ -8,33 +8,29 @@ import {
   fetchInstance,
   fetchLiveAliyun,
   fetchProviders,
+  fetchRetentionSettings,
   fetchSummary,
+  updateRetentionSettings,
 } from './client'
-import type { InstanceQuery, InstanceRef } from './types'
-
-/** `/health` 固定 30 秒一次，用于判断隧道是否还活着。 */
-export const HEALTH_POLL_MS = 30_000
-
-/** 出错后（多半是隧道断了）加快探测，隧道一恢复界面就能自己回来。 */
-export const RECOVERY_POLL_MS = 15_000
+import type { InstanceQuery, InstanceRef, RetentionSettingsUpdate } from './types'
 
 export const queryKeys = {
   health: ['health'] as const,
   liveAliyun: ['live', 'aliyun_swas'] as const,
   summary: ['summary'] as const,
   providers: ['providers'] as const,
+  retention: ['settings', 'retention'] as const,
   instances: (query: InstanceQuery) => ['instances', query] as const,
   instance: (ref: InstanceRef) => ['instance', ref.provider, ref.instanceKey] as const,
   history: (ref: InstanceRef, hours: number) =>
     ['history', ref.provider, ref.instanceKey, hours] as const,
 }
 
-export function useHealth() {
+export function useHealth(refreshMs: number | false) {
   return useQuery({
     queryKey: queryKeys.health,
     queryFn: ({ signal }) => fetchHealth(signal),
-    refetchInterval: (query) =>
-      query.state.status === 'error' ? RECOVERY_POLL_MS : HEALTH_POLL_MS,
+    refetchInterval: refreshMs,
   })
 }
 
@@ -42,7 +38,7 @@ export function useSummary(refreshMs: number | false) {
   return useQuery({
     queryKey: queryKeys.summary,
     queryFn: ({ signal }) => fetchSummary(signal),
-    refetchInterval: (query) => (query.state.status === 'error' ? RECOVERY_POLL_MS : refreshMs),
+    refetchInterval: refreshMs,
     placeholderData: keepPreviousData,
   })
 }
@@ -51,8 +47,28 @@ export function useProviders(refreshMs: number | false) {
   return useQuery({
     queryKey: queryKeys.providers,
     queryFn: ({ signal }) => fetchProviders(signal),
-    refetchInterval: (query) => (query.state.status === 'error' ? RECOVERY_POLL_MS : refreshMs),
+    refetchInterval: refreshMs,
     placeholderData: keepPreviousData,
+  })
+}
+
+export function useRetentionSettings(enabled = true) {
+  return useQuery({
+    queryKey: queryKeys.retention,
+    queryFn: ({ signal }) => fetchRetentionSettings(signal),
+    enabled,
+    staleTime: 60_000,
+  })
+}
+
+export function useUpdateRetentionSettings() {
+  const client = useQueryClient()
+  return useMutation({
+    mutationFn: (value: RetentionSettingsUpdate) => updateRetentionSettings(value),
+    onSuccess: async (value) => {
+      client.setQueryData(queryKeys.retention, value)
+      await client.invalidateQueries({ queryKey: ['history'] })
+    },
   })
 }
 
@@ -78,7 +94,7 @@ export function useInstances(query: InstanceQuery, refreshMs: number | false) {
   return useQuery({
     queryKey: queryKeys.instances(query),
     queryFn: ({ signal }) => fetchAllInstances(query, signal),
-    refetchInterval: (state) => (state.state.status === 'error' ? RECOVERY_POLL_MS : refreshMs),
+    refetchInterval: refreshMs,
     placeholderData: keepPreviousData,
   })
 }

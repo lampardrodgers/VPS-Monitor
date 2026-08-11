@@ -1,5 +1,5 @@
 /**
- * 只读 API 客户端。除了 `VITE_API_BASE_URL` 指向的本地隧道，不会访问任何其他主机。
+ * API 客户端。监控数据只读，仅留存设置使用 PUT；按需模式下由代理建立 SSH。
  */
 import { ApiError } from './errors'
 import {
@@ -9,6 +9,7 @@ import {
   parseInstanceList,
   parseLiveQuery,
   parseProviderList,
+  parseRetentionSettings,
   parseSummary,
 } from './parse'
 import type {
@@ -20,11 +21,13 @@ import type {
   InstanceRef,
   LiveQueryResponse,
   ProviderListResponse,
+  RetentionSettings,
+  RetentionSettingsUpdate,
   SummaryResponse,
 } from './types'
 
 const DEFAULT_BASE_URL = 'http://127.0.0.1:8787'
-const REQUEST_TIMEOUT_MS = 15_000
+const REQUEST_TIMEOUT_MS = 30_000
 
 /** 单页最大条数由后端限制（1–500）。 */
 export const MAX_PAGE_SIZE = 500
@@ -36,7 +39,8 @@ export const apiBaseUrl: string = (
 ).replace(/\/+$/, '')
 
 function buildUrl(path: string, params?: Record<string, string | number | undefined>): string {
-  const url = new URL(`${apiBaseUrl}${path}`)
+  const origin = typeof window === 'undefined' ? DEFAULT_BASE_URL : window.location.origin
+  const url = new URL(`${apiBaseUrl}${path}`, origin)
   for (const [key, value] of Object.entries(params ?? {})) {
     if (value === undefined || value === '') continue
     url.searchParams.set(key, String(value))
@@ -64,6 +68,8 @@ async function request<T>(
     params?: Record<string, string | number | undefined>
     signal?: AbortSignal
     cache?: RequestCache
+    method?: 'GET' | 'PUT'
+    body?: unknown
   } = {},
 ): Promise<T> {
   const url = buildUrl(path, options.params)
@@ -73,8 +79,12 @@ async function request<T>(
   let response: Response
   try {
     response = await fetch(url, {
-      method: 'GET',
-      headers: { Accept: 'application/json' },
+      method: options.method ?? 'GET',
+      headers: {
+        Accept: 'application/json',
+        ...(options.body === undefined ? {} : { 'Content-Type': 'application/json' }),
+      },
+      body: options.body === undefined ? undefined : JSON.stringify(options.body),
       signal,
       cache: options.cache,
     })
@@ -116,6 +126,21 @@ export function fetchSummary(signal?: AbortSignal): Promise<SummaryResponse> {
 
 export function fetchProviders(signal?: AbortSignal): Promise<ProviderListResponse> {
   return request('/api/v1/providers', parseProviderList, { signal })
+}
+
+export function fetchRetentionSettings(signal?: AbortSignal): Promise<RetentionSettings> {
+  return request('/api/v1/settings/retention', parseRetentionSettings, { signal })
+}
+
+export function updateRetentionSettings(
+  value: RetentionSettingsUpdate,
+  signal?: AbortSignal,
+): Promise<RetentionSettings> {
+  return request('/api/v1/settings/retention', parseRetentionSettings, {
+    signal,
+    method: 'PUT',
+    body: value,
+  })
 }
 
 /** 每次调用都会让服务端重新查询阿里云，浏览器不得复用 HTTP 缓存。 */

@@ -82,6 +82,17 @@ export interface SummaryResponse {
   traffic_total_bytes: number
 }
 
+export interface RetentionSettings {
+  history_retention_days: number
+  run_retention_days: number
+  updated_at: string | null
+}
+
+export interface RetentionSettingsUpdate {
+  history_retention_days: number
+  run_retention_days: number
+}
+
 export interface InstanceQuery {
   provider?: string | undefined
   status?: string | undefined

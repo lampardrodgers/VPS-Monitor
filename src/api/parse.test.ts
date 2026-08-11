@@ -8,6 +8,7 @@ import {
   parseInstanceList,
   parseLiveQuery,
   parseProviderList,
+  parseRetentionSettings,
   parseSummary,
 } from '@/api/parse'
 
@@ -168,5 +169,17 @@ describe('parseSummary', () => {
     })
     expect(summary.instances_total).toBe(6)
     expect(summary.traffic_total_bytes).toBe(200)
+  })
+})
+
+describe('parseRetentionSettings', () => {
+  it('parses server-side retention days', () => {
+    const settings = parseRetentionSettings({
+      history_retention_days: 14,
+      run_retention_days: 60,
+      updated_at: '2030-01-01T00:00:00+00:00',
+    })
+    expect(settings.history_retention_days).toBe(14)
+    expect(settings.run_retention_days).toBe(60)
   })
 })

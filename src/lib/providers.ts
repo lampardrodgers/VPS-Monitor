@@ -19,6 +19,7 @@ const PROVIDER_REGISTRY: Record<string, Omit<ProviderMeta, 'id'>> = {
   panstar: { label: 'PanstarCloud', short: 'PAN', hue: 200 },
   greencloud: { label: 'GreenCloud', short: 'GC', hue: 150 },
   dedione: { label: 'DediOne', short: 'D1', hue: 320 },
+  racknerd: { label: 'RackNerd', short: 'RN', hue: 10 },
   virtualizor: { label: 'Virtualizor', short: 'VIR', hue: 90 },
   virtfusion: { label: 'VirtFusion', short: 'VF', hue: 120 },
 }

@@ -208,11 +208,8 @@ export default function App() {
           <div className="mx-auto flex max-w-[1600px] items-start gap-2 px-4 py-2 text-xs text-crit lg:px-6">
             <TriangleAlert size={14} className="mt-0.5 shrink-0" />
             <p>
-              无法连接 API：SSH 隧道未连接或服务未启动。请执行
-              <code className="tnum mx-1 rounded bg-panel px-1 py-0.5 text-[11px]">
-                ssh -N -L 8787:127.0.0.1:18787 root@&lt;SERVER_IP&gt;
-              </code>
-              后重试；下方展示的是最后一次成功获取的数据。
+              无法连接 API：临时 SSH 连接失败或服务未启动。每次刷新都会自动重新建立连接；
+              下方展示的是最后一次成功获取的数据。
             </p>
           </div>
         </div>
@@ -228,7 +225,7 @@ export default function App() {
               }}
             />
             <p className="border-t border-line px-6 py-3 text-center text-[11px] text-fg-faint">
-              隧道恢复后页面会自动重连，无需刷新浏览器。
+              点击重试会重新建立临时 SSH，无需手动保持端口转发。
             </p>
           </Panel>
         </main>
@@ -335,7 +332,7 @@ export default function App() {
         </Panel>
 
         <footer className="pb-6 text-center text-[10px] text-fg-faint">
-          只读监控界面 · 不执行任何开关机或重装操作 · 数据来自本地 SSH 隧道
+          只读监控界面 · 不执行任何开关机或重装操作 · API 请求使用临时 SSH 连接
         </footer>
       </main>
       )}
