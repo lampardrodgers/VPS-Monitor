@@ -401,7 +401,7 @@ private struct ConnectionBanner: View {
             VStack(alignment: .leading, spacing: 2) {
                 Text(message)
                     .font(.subheadline.weight(.medium))
-                Text("请确认 SSH 端口转发与 vpsmonitor-api 服务正在运行。")
+                Text("应用会在刷新时自动临时连接；请检查 SSH 配置、网络与远端 vpsmonitor-api 服务。")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

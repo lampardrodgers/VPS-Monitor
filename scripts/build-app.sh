@@ -15,6 +15,7 @@ rm -rf "$APP_DIR"
 mkdir -p "$CONTENTS_DIR/MacOS" "$CONTENTS_DIR/Resources"
 cp "$BIN_DIR/VPSMonitorMenuBar" "$CONTENTS_DIR/MacOS/VPSMonitorMenuBar"
 cp "$PROJECT_DIR/Support/Info.plist" "$CONTENTS_DIR/Info.plist"
+cp "$PROJECT_DIR/Support/AppIcon.icns" "$CONTENTS_DIR/Resources/AppIcon.icns"
 codesign --force --deep --sign - "$APP_DIR"
 
 echo "$APP_DIR"

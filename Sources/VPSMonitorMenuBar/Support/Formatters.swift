@@ -144,6 +144,7 @@ extension InstanceObservation {
         case "panstar": "Panstar"
         case "virtfusion", "greencloud": "GreenCloud"
         case "virtualizor", "dedione": "DediOne"
+        case "racknerd": "RackNerd"
         default: provider.replacingOccurrences(of: "_", with: " ").capitalized
         }
     }

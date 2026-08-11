@@ -88,4 +88,25 @@ final class APITypesTests: XCTestCase {
         XCTAssertEqual(value.instancesTotal, 6)
         XCTAssertEqual(value.trafficTotalBytes, 1_099_511_627_776)
     }
+
+    func testRetentionSettingsUseSnakeCaseKeys() throws {
+        let data = Data(#"""
+        {
+          "history_retention_days":14,
+          "run_retention_days":60,
+          "updated_at":"2026-08-11T00:00:00+00:00"
+        }
+        """#.utf8)
+
+        let value = try JSONDecoder.vpsMonitor.decode(RetentionSettings.self, from: data)
+        XCTAssertEqual(value.historyRetentionDays, 14)
+        XCTAssertEqual(value.runRetentionDays, 60)
+
+        let encoded = try JSONEncoder.vpsMonitor.encode(
+            RetentionSettingsUpdate(historyRetentionDays: 30, runRetentionDays: 90)
+        )
+        let object = try XCTUnwrap(JSONSerialization.jsonObject(with: encoded) as? [String: Int])
+        XCTAssertEqual(object["history_retention_days"], 30)
+        XCTAssertEqual(object["run_retention_days"], 90)
+    }
 }

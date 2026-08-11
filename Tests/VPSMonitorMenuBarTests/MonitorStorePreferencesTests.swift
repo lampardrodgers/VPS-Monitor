@@ -103,4 +103,36 @@ final class MonitorStorePreferencesTests: XCTestCase {
         XCTAssertNil(CountryCatalog.apiCountryCode(for: regionOnly))
         XCTAssertEqual(CountryCatalog.apiCountryCode(for: explicit), "CN")
     }
+
+    func testSSHTunnelConfigurationOnlyMatchesItsLoopbackPort() {
+        let configuration = SSHTunnelConfiguration(
+            target: "root@example.test",
+            localPort: 8_787,
+            remoteHost: "127.0.0.1",
+            remotePort: 18_787,
+            identityFile: nil
+        )
+        let matching = MonitorSource(
+            id: UUID(),
+            name: "Local API",
+            baseURL: "http://localhost:8787/",
+            isEnabled: true
+        )
+        let otherLocalPort = MonitorSource(
+            id: UUID(),
+            name: "Other local service",
+            baseURL: "http://127.0.0.1:9000",
+            isEnabled: true
+        )
+        let remote = MonitorSource(
+            id: UUID(),
+            name: "Remote API",
+            baseURL: "https://monitor.example.test",
+            isEnabled: true
+        )
+
+        XCTAssertTrue(configuration.applies(to: matching))
+        XCTAssertFalse(configuration.applies(to: otherLocalPort))
+        XCTAssertFalse(configuration.applies(to: remote))
+    }
 }

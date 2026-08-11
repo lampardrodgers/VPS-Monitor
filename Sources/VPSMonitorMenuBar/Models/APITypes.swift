@@ -82,6 +82,17 @@ struct SummaryResponse: Codable, Hashable, Sendable {
     let trafficTotalBytes: Double
 }
 
+struct RetentionSettings: Codable, Hashable, Sendable {
+    let historyRetentionDays: Int
+    let runRetentionDays: Int
+    let updatedAt: String?
+}
+
+struct RetentionSettingsUpdate: Codable, Hashable, Sendable {
+    let historyRetentionDays: Int
+    let runRetentionDays: Int
+}
+
 struct ProviderStatus: Codable, Hashable, Sendable, Identifiable {
     let provider: String
     let ok: Bool
@@ -187,6 +198,7 @@ extension JSONDecoder {
 extension JSONEncoder {
     static var vpsMonitor: JSONEncoder {
         let encoder = JSONEncoder()
+        encoder.keyEncodingStrategy = .convertToSnakeCase
         encoder.outputFormatting = [.sortedKeys]
         return encoder
     }

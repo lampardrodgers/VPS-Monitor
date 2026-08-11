@@ -23,6 +23,7 @@ final class MonitorStore: ObservableObject {
     private var order: [String]
     private var resetDayAnchors: [String: Int]
     private var liveRefreshTask: Task<Void, Never>?
+    private let sshTunnel = EphemeralSSHTunnel()
     private let defaults: UserDefaults
     private let sourcesKey = "monitor.sources.v1"
     private let instancesKey = "monitor.cachedInstances.v1"
@@ -111,7 +112,7 @@ final class MonitorStore: ObservableObject {
         guard !sourceErrors.isEmpty else { return nil }
         let enabledCount = sources.filter(\.isEnabled).count
         if enabledCount > 0, sourceErrors.count >= enabledCount {
-            return "SSH 隧道未连接或监控 API 未启动"
+            return "临时 SSH 连接失败或监控 API 未启动"
         }
         return "部分监控源暂时不可用，正在显示上次成功数据"
     }
@@ -128,8 +129,22 @@ final class MonitorStore: ObservableObject {
             return
         }
 
-        let results = await withTaskGroup(of: FetchResult.self, returning: [FetchResult].self) { group in
-            for source in enabled {
+        let tunnelSources = enabled.filter { sshTunnel.requiresTunnel(for: $0) }
+        var acquiredTunnel = false
+        var initialResults: [FetchResult] = []
+        do {
+            acquiredTunnel = try await sshTunnel.acquireIfNeeded(for: tunnelSources)
+        } catch {
+            initialResults = tunnelSources.map {
+                .failure($0.id, "临时 SSH 连接失败：\(error.localizedDescription)")
+            }
+        }
+        defer { sshTunnel.release(acquiredTunnel) }
+
+        let blockedSourceIDs = Set(initialResults.compactMap(\.failedSourceID))
+        let fetchableSources = enabled.filter { !blockedSourceIDs.contains($0.id) }
+        let fetchedResults = await withTaskGroup(of: FetchResult.self, returning: [FetchResult].self) { group in
+            for source in fetchableSources {
                 group.addTask {
                     do {
                         let client = try APIClient(baseURL: source.normalizedBaseURL)
@@ -143,6 +158,7 @@ final class MonitorStore: ObservableObject {
             for await result in group { collected.append(result) }
             return collected
         }
+        let results = initialResults + fetchedResults
 
         var nextInstances = instances.filter { cached in
             !enabled.contains(where: { $0.id == cached.source.id })
@@ -214,8 +230,22 @@ final class MonitorStore: ObservableObject {
         isRefreshingAliyun = true
         defer { isRefreshingAliyun = false }
 
-        let results = await withTaskGroup(of: LiveFetchResult.self, returning: [LiveFetchResult].self) { group in
-            for source in enabled {
+        let tunnelSources = enabled.filter { sshTunnel.requiresTunnel(for: $0) }
+        var acquiredTunnel = false
+        var initialResults: [LiveFetchResult] = []
+        do {
+            acquiredTunnel = try await sshTunnel.acquireIfNeeded(for: tunnelSources)
+        } catch {
+            initialResults = tunnelSources.map {
+                .failure($0.name, "临时 SSH 连接失败：\(error.localizedDescription)")
+            }
+        }
+        defer { sshTunnel.release(acquiredTunnel) }
+
+        let blockedSourceIDs = initialResults.isEmpty ? Set<UUID>() : Set(tunnelSources.map(\.id))
+        let fetchableSources = enabled.filter { !blockedSourceIDs.contains($0.id) }
+        let fetchedResults = await withTaskGroup(of: LiveFetchResult.self, returning: [LiveFetchResult].self) { group in
+            for source in fetchableSources {
                 group.addTask {
                     do {
                         let client = try APIClient(baseURL: source.normalizedBaseURL)
@@ -231,6 +261,7 @@ final class MonitorStore: ObservableObject {
             for await result in group { collected.append(result) }
             return collected
         }
+        let results = initialResults + fetchedResults
 
         if Task.isCancelled { return }
         var nextInstances = instances
@@ -282,10 +313,12 @@ final class MonitorStore: ObservableObject {
             baseURL: baseURL,
             isEnabled: true
         )
-        let client = try APIClient(baseURL: candidate.normalizedBaseURL)
         guard !sources.contains(where: { $0.normalizedBaseURL.caseInsensitiveCompare(candidate.normalizedBaseURL) == .orderedSame }) else {
             throw SourceError.duplicate
         }
+        let acquiredTunnel = try await sshTunnel.acquireIfNeeded(for: [candidate])
+        defer { sshTunnel.release(acquiredTunnel) }
+        let client = try APIClient(baseURL: candidate.normalizedBaseURL)
         let snapshot = try await client.fetchSnapshot(source: candidate)
         sources.append(candidate)
         persistSources()
@@ -486,11 +519,36 @@ final class MonitorStore: ObservableObject {
     }
 
     func fetchHistory(for instance: MonitoredInstance, hours: Int) async throws -> InstanceHistoryResponse {
+        let acquiredTunnel = try await sshTunnel.acquireIfNeeded(for: [instance.source])
+        defer { sshTunnel.release(acquiredTunnel) }
         let client = try APIClient(baseURL: instance.source.normalizedBaseURL)
         return try await client.fetchHistory(
             provider: instance.observation.provider,
             instanceKey: instance.observation.instanceKey,
             hours: hours
+        )
+    }
+
+    func fetchRetentionSettings(for source: MonitorSource) async throws -> RetentionSettings {
+        let acquiredTunnel = try await sshTunnel.acquireIfNeeded(for: [source])
+        defer { sshTunnel.release(acquiredTunnel) }
+        let client = try APIClient(baseURL: source.normalizedBaseURL)
+        return try await client.fetchRetentionSettings()
+    }
+
+    func updateRetentionSettings(
+        for source: MonitorSource,
+        historyDays: Int,
+        runDays: Int
+    ) async throws -> RetentionSettings {
+        let acquiredTunnel = try await sshTunnel.acquireIfNeeded(for: [source])
+        defer { sshTunnel.release(acquiredTunnel) }
+        let client = try APIClient(baseURL: source.normalizedBaseURL)
+        return try await client.updateRetentionSettings(
+            RetentionSettingsUpdate(
+                historyRetentionDays: historyDays,
+                runRetentionDays: runDays
+            )
         )
     }
 
@@ -544,6 +602,11 @@ final class MonitorStore: ObservableObject {
 private enum FetchResult: Sendable {
     case success(SourceSnapshot)
     case failure(UUID, String)
+
+    var failedSourceID: UUID? {
+        guard case let .failure(sourceID, _) = self else { return nil }
+        return sourceID
+    }
 }
 
 private enum LiveFetchResult: Sendable {

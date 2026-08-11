@@ -49,6 +49,19 @@ struct APIClient: Sendable {
         try await request(path: "/api/v1/providers")
     }
 
+    func fetchRetentionSettings() async throws -> RetentionSettings {
+        try await request(path: "/api/v1/settings/retention")
+    }
+
+    func updateRetentionSettings(_ value: RetentionSettingsUpdate) async throws -> RetentionSettings {
+        let body = try JSONEncoder.vpsMonitor.encode(value)
+        return try await request(
+            path: "/api/v1/settings/retention",
+            method: "PUT",
+            body: body
+        )
+    }
+
     func fetchAllInstances() async throws -> InstanceListResponse {
         let pageSize = 500
         let maximum = 2_000
@@ -111,6 +124,8 @@ struct APIClient: Sendable {
     private func request<Response: Decodable & Sendable>(
         path: String,
         query: [URLQueryItem] = [],
+        method: String = "GET",
+        body: Data? = nil,
         timeout: TimeInterval = 15,
         cachePolicy: URLRequest.CachePolicy = .useProtocolCachePolicy
     ) async throws -> Response {
@@ -123,8 +138,12 @@ struct APIClient: Sendable {
         guard let url = components.url else { throw APIError.invalidBaseURL }
 
         var request = URLRequest(url: url, cachePolicy: cachePolicy, timeoutInterval: timeout)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let body {
+            request.httpBody = body
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         if cachePolicy == .reloadIgnoringLocalCacheData {
             request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
         }
