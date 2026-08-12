@@ -3,7 +3,7 @@
 一个纯原生 SwiftUI 菜单栏应用，对接
 [`api` 分支](https://github.com/lampardrodgers/VPS-Monitor/blob/api/docs/API.md)定义的监控 API。
 
-当前版本：`0.3.0`。
+当前版本：`0.3.1`。
 
 ## 功能
 

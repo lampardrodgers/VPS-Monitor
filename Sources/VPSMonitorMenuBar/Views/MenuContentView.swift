@@ -9,16 +9,34 @@ struct MenuContentView: View {
     @State private var searchText = ""
     @State private var draggedInstanceID: String?
     @State private var reorderFrames: [String: CGRect] = [:]
+    @State private var hiddenStates: Set<ServerState> = []
+    @State private var hiddenInstanceIDs: Set<String> = []
 
     private var visibleInstances: [MonitoredInstance] {
+        let filtered = store.instances.filter { instance in
+            !hiddenStates.contains(instance.observation.normalizedState) &&
+            !hiddenInstanceIDs.contains(instance.id)
+        }
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !query.isEmpty else { return store.instances }
-        return store.instances.filter {
+        guard !query.isEmpty else { return filtered }
+        return filtered.filter {
             store.displayName(for: $0).localizedCaseInsensitiveContains(query) ||
             $0.observation.displayName.localizedCaseInsensitiveContains(query) ||
             $0.observation.provider.localizedCaseInsensitiveContains(query) ||
             ($0.observation.metadataText("region", "location", "datacenter")?.localizedCaseInsensitiveContains(query) == true)
         }
+    }
+
+    private var providerCount: Int {
+        Set(store.instances.map(\.observation.provider)).count
+    }
+
+    private var visibleProviderCount: Int {
+        Set(
+            store.instances
+                .filter { !hiddenInstanceIDs.contains($0.id) }
+                .map(\.observation.provider)
+        ).count
     }
 
     var body: some View {
@@ -45,9 +63,7 @@ struct MenuContentView: View {
                     }
                     .padding(12)
                 }
-                // MenuBarExtra 的 window 样式不会为 ScrollView 推导可靠的固有高度。
-                // 只给 maxHeight 时，真实菜单栏弹窗可能把内容区压缩为 0，只剩顶栏和底栏。
-                .frame(height: 500)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .coordinateSpace(name: "serverReorderArea")
                 .onPreferenceChange(InstanceFramePreferenceKey.self) {
                     reorderFrames = $0
@@ -55,7 +71,14 @@ struct MenuContentView: View {
                 Divider()
                 footer
             }
-            .frame(width: 430)
+            .frame(
+                minWidth: MenuBarPanelSize.minimumSize.width,
+                idealWidth: MenuBarPanelSize.defaultSize.width,
+                maxWidth: .infinity,
+                minHeight: MenuBarPanelSize.minimumSize.height,
+                idealHeight: MenuBarPanelSize.defaultSize.height,
+                maxHeight: .infinity
+            )
             .background {
                 VisualEffectBackground(material: .underWindowBackground)
                     .ignoresSafeArea()
@@ -182,18 +205,8 @@ struct MenuContentView: View {
 
     private var summaryStrip: some View {
         HStack(spacing: 8) {
-            SummaryCell(
-                title: "在线",
-                value: "\(store.onlineCount) / \(store.totalCount)",
-                symbol: "checkmark.circle.fill",
-                color: store.onlineCount == store.totalCount && store.totalCount > 0 ? .green : .secondary
-            )
-            SummaryCell(
-                title: "供应商",
-                value: "\(store.providersSummary.ok) / \(store.providersSummary.total)",
-                symbol: "building.2.fill",
-                color: store.providersSummary.ok == store.providersSummary.total && store.providersSummary.total > 0 ? .green : .orange
-            )
+            statusFilterLink
+            providerFilterLink
             SummaryCell(
                 title: "流量",
                 value: trafficLabel,
@@ -203,10 +216,52 @@ struct MenuContentView: View {
         }
     }
 
+    private var statusFilterLink: some View {
+        NavigationLink {
+            StatusVisibilityView(store: store, hiddenStates: $hiddenStates)
+        } label: {
+            SummaryCell(
+                title: "在线",
+                value: "\(store.onlineCount) / \(store.totalCount)",
+                symbol: hiddenStates.isEmpty ? "checkmark.circle.fill" : "line.3.horizontal.decrease.circle.fill",
+                color: hiddenStates.isEmpty
+                    ? (store.onlineCount == store.totalCount && store.totalCount > 0 ? .green : .secondary)
+                    : .blue,
+                showsDisclosure: true
+            )
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .help("选择显示哪些运行状态")
+    }
+
+    private var providerFilterLink: some View {
+        NavigationLink {
+            ProviderVisibilityView(store: store, hiddenInstanceIDs: $hiddenInstanceIDs)
+        } label: {
+            SummaryCell(
+                title: "供应商",
+                value: "\(visibleProviderCount) / \(providerCount)",
+                symbol: hiddenInstanceIDs.isEmpty ? "building.2.fill" : "line.3.horizontal.decrease.circle.fill",
+                color: hiddenInstanceIDs.isEmpty
+                    ? (store.providersSummary.ok == store.providersSummary.total && store.providersSummary.total > 0 ? .green : .orange)
+                    : .blue,
+                showsDisclosure: true
+            )
+        }
+        .buttonStyle(.plain)
+        .frame(maxWidth: .infinity)
+        .help("选择显示哪些供应商")
+    }
+
     @ViewBuilder
     private var serverList: some View {
         if visibleInstances.isEmpty {
-            ContentUnavailableView("没有匹配的 VPS", systemImage: "magnifyingglass", description: Text("换一个关键词试试"))
+            ContentUnavailableView(
+                hasActiveFilters ? "筛选后没有 VPS" : "没有匹配的 VPS",
+                systemImage: hasActiveFilters ? "line.3.horizontal.decrease.circle" : "magnifyingglass",
+                description: Text(hasActiveFilters ? "点击顶部“在线”或“供应商”调整筛选" : "换一个关键词试试")
+            )
                 .frame(height: 220)
         } else {
             ForEach(visibleInstances) { instance in
@@ -277,6 +332,8 @@ struct MenuContentView: View {
 
     private var footer: some View {
         HStack(spacing: 12) {
+            WindowResizeHandle(side: .left)
+                .frame(width: 22, height: 22)
             Circle()
                 .fill(store.sourceErrors.isEmpty ? Color.green : Color.orange)
                 .frame(width: 6, height: 6)
@@ -296,8 +353,10 @@ struct MenuContentView: View {
             }
             .buttonStyle(.borderless)
             .help("退出 VPS Monitor")
+            WindowResizeHandle(side: .right)
+                .frame(width: 22, height: 22)
         }
-        .padding(.horizontal, 13)
+        .padding(.horizontal, 8)
         .padding(.vertical, 10)
     }
 
@@ -338,6 +397,10 @@ struct MenuContentView: View {
         store.isRefreshing || store.isRefreshingAliyun
     }
 
+    private var hasActiveFilters: Bool {
+        !hiddenStates.isEmpty || !hiddenInstanceIDs.isEmpty
+    }
+
     private var refreshLabel: String {
         guard let date = store.lastRefreshAt else { return "等待首次刷新" }
         return "更新于 \(date.formatted(date: .omitted, time: .shortened))"
@@ -364,6 +427,7 @@ private struct SummaryCell: View {
     let value: String
     let symbol: String
     let color: Color
+    var showsDisclosure = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -374,6 +438,12 @@ private struct SummaryCell: View {
                 Text(title)
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if showsDisclosure {
+                    Spacer(minLength: 3)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 8, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                }
             }
             Text(value)
                 .font(.system(.subheadline, design: .rounded, weight: .semibold))

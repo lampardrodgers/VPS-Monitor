@@ -70,7 +70,7 @@ enum VPSFormat {
     }
 }
 
-enum ServerState: String, Sendable {
+enum ServerState: String, CaseIterable, Hashable, Sendable {
     case online
     case offline
     case transitional

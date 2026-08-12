@@ -1,8 +1,7 @@
 import AppKit
 import SwiftUI
 
-/// A real AppKit visual-effect backdrop. SwiftUI's Material alone cannot blur
-/// the desktop when the hosting MenuBarExtra window is still opaque.
+/// A real AppKit visual-effect backdrop for the transparent menu bar panel.
 struct VisualEffectBackground: NSViewRepresentable {
     var material: NSVisualEffectView.Material = .underWindowBackground
     var blendingMode: NSVisualEffectView.BlendingMode = .behindWindow

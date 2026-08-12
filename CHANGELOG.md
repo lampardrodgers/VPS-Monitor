@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## mac-v0.3.1 - 2026-08-12
+
+- Added a native status-bar panel with remembered, resizable dimensions.
+- Added status/provider visibility filters for the main VPS list.
+- Added masked IP address display with explicit reveal and copy actions.
+- Replaced release test fixtures with documentation-only IP ranges.
+
 ## mac-v0.3.0 - 2026-08-11
 
 - Added shared server retention settings to the native Settings window.

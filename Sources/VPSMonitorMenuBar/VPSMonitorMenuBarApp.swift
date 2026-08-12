@@ -4,54 +4,78 @@ import SwiftUI
 @main
 struct VPSMonitorMenuBarApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
-    @StateObject private var store = MonitorStore()
 
     var body: some Scene {
-        MenuBarExtra {
-            MenuContentView(store: store)
-        } label: {
-            Label("VPS Monitor", systemImage: menuBarSymbol)
-                .onAppear {
-                    store.startLiveRefreshLoop()
-                }
-        }
-        .menuBarExtraStyle(.window)
-
         Settings {
-            SettingsView(store: store)
+            SettingsView(store: appDelegate.store)
         }
-    }
-
-    private var menuBarSymbol: String {
-        if !store.sourceErrors.isEmpty { return "server.rack" }
-        return store.onlineCount == store.totalCount && store.totalCount > 0
-            ? "server.rack"
-            : "server.rack"
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    let store = MonitorStore()
+
+    private var statusItem: NSStatusItem?
+    private var menuBarPanelController: MenuBarPanelController?
     private var previewWindow: NSWindow?
-    private var previewStore: MonitorStore?
+    private var isPanelTestRun = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let showsPreview = ProcessInfo.processInfo.arguments.contains("--preview-window")
         NSApp.setActivationPolicy(showsPreview ? .regular : .accessory)
-        guard showsPreview else { return }
+        store.startLiveRefreshLoop()
 
-        let store = MonitorStore()
+        if showsPreview {
+            showPreviewWindow()
+        } else {
+            installMenuBarItem()
+        }
+    }
+
+    private func installMenuBarItem() {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
+        guard let button = item.button else { return }
+        button.image = NSImage(systemSymbolName: "server.rack", accessibilityDescription: "VPS Monitor")
+        button.image?.isTemplate = true
+        button.toolTip = "VPS Monitor"
+        button.target = self
+        button.action = #selector(toggleMenuBarPanel(_:))
+
+        isPanelTestRun = ProcessInfo.processInfo.arguments.contains("--show-menu-panel")
+        statusItem = item
+        menuBarPanelController = MenuBarPanelController(store: store)
+
+        if isPanelTestRun {
+            DispatchQueue.main.async { [weak self] in
+                self?.menuBarPanelController?.show()
+            }
+        }
+    }
+
+    @objc private func toggleMenuBarPanel(_ sender: NSStatusBarButton) {
+        menuBarPanelController?.toggle(anchorPoint: NSEvent.mouseLocation)
+    }
+
+    func applicationDidResignActive(_ notification: Notification) {
+        guard !isPanelTestRun,
+              menuBarPanelController?.isVisible == true else { return }
+        menuBarPanelController?.hide()
+    }
+
+    private func showPreviewWindow() {
         let controller = NSHostingController(rootView: MenuContentView(store: store))
         let window = NSWindow(contentViewController: controller)
         window.title = "VPS Monitor Preview"
-        window.setContentSize(NSSize(width: 430, height: 650))
-        window.styleMask = [.titled, .closable, .fullSizeContentView]
+        window.setContentSize(MenuBarPanelSize.restoredSize())
+        window.styleMask = [.titled, .closable, .resizable, .fullSizeContentView]
+        window.contentMinSize = MenuBarPanelSize.minimumSize
         window.titlebarAppearsTransparent = true
         window.isOpaque = false
         window.backgroundColor = .clear
         window.center()
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        previewStore = store
         previewWindow = window
     }
 }

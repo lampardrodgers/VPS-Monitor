@@ -1,3 +1,4 @@
+import AppKit
 import Charts
 import SwiftUI
 
@@ -8,6 +9,7 @@ struct ServerDetailView: View {
     @State private var isEditingResetTime = false
     @State private var isEditingAlias = false
     @State private var isSelectingCountry = false
+    @State private var areIPAddressesRevealed = false
 
     private var current: MonitoredInstance {
         store.instances.first(where: { $0.id == instance.id }) ?? instance
@@ -37,6 +39,10 @@ struct ServerDetailView: View {
                         isSelectingCountry = false
                     }
                 }
+                IPAddressSection(
+                    addresses: server.ipAddresses,
+                    isRevealed: $areIPAddressesRevealed
+                )
                 resourceGrid
                 trafficCard
                 if isEditingResetTime {
@@ -50,7 +56,7 @@ struct ServerDetailView: View {
             }
             .padding(14)
         }
-        .frame(width: 430, height: 610)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             VisualEffectBackground(material: .underWindowBackground)
                 .ignoresSafeArea()
@@ -216,7 +222,7 @@ struct ServerDetailView: View {
                     DetailRow(label: key, value: display(server.quota[key]))
                 }
                 ForEach(server.metadata.keys.sorted(), id: \.self) { key in
-                    DetailRow(label: key, value: display(server.metadata[key]))
+                    DetailRow(label: key, value: displayMetadata(key: key, value: server.metadata[key]))
                 }
             }
             .padding(.top, 8)
@@ -271,6 +277,124 @@ struct ServerDetailView: View {
         case let .object(value): return "对象（\(value.count) 项）"
         case let .array(value): return "数组（\(value.count) 项）"
         case .null: return VPSFormat.empty
+        }
+    }
+
+    private func displayMetadata(key: String, value: JSONValue?) -> String {
+        guard !areIPAddressesRevealed,
+              IPAddressParser.isMetadataIPKey(key),
+              case let .string(rawAddress)? = value else {
+            return display(value)
+        }
+        return IPAddressPrivacy.masked(rawAddress)
+    }
+}
+
+private struct IPAddressSection: View {
+    let addresses: InstanceIPAddresses
+    @Binding var isRevealed: Bool
+    @State private var copiedAddress: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Label("IP 地址", systemImage: "network")
+                    .font(.subheadline.weight(.semibold))
+                Spacer(minLength: 8)
+                Button {
+                    isRevealed.toggle()
+                    if !isRevealed { copiedAddress = nil }
+                } label: {
+                    Image(systemName: isRevealed ? "eye.slash" : "eye")
+                        .frame(width: 16, height: 16)
+                }
+                .buttonStyle(.borderless)
+                .frame(width: 20, height: 18)
+                .help(isRevealed ? "隐藏完整 IP" : "显示完整 IP")
+                .accessibilityLabel(isRevealed ? "隐藏完整 IP" : "显示完整 IP")
+            }
+            .frame(height: 18)
+
+            IPAddressVersionRow(
+                label: "IPv4",
+                addresses: addresses.ipv4,
+                isRevealed: isRevealed,
+                copiedAddress: copiedAddress,
+                copy: copy
+            )
+            Divider()
+            IPAddressVersionRow(
+                label: "IPv6",
+                addresses: addresses.ipv6,
+                isRevealed: isRevealed,
+                copiedAddress: copiedAddress,
+                copy: copy
+            )
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(12)
+        .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 9, style: .continuous)
+                .stroke(Color.primary.opacity(0.07), lineWidth: 1)
+        }
+    }
+
+    private func copy(_ address: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(address, forType: .string)
+        copiedAddress = address
+    }
+}
+
+private struct IPAddressVersionRow: View {
+    let label: String
+    let addresses: [String]
+    let isRevealed: Bool
+    let copiedAddress: String?
+    let copy: (String) -> Void
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Text(label)
+                .font(.caption.weight(.medium))
+                .foregroundStyle(.secondary)
+                .frame(width: 34, alignment: .leading)
+            Spacer(minLength: 8)
+            if addresses.isEmpty {
+                Text("无")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            } else {
+                VStack(alignment: .trailing, spacing: 6) {
+                    ForEach(addresses, id: \.self) { address in
+                        Button {
+                            if isRevealed {
+                                copy(address)
+                            }
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text(isRevealed ? address : IPAddressPrivacy.masked(address))
+                                    .lineLimit(1)
+                                    .minimumScaleFactor(0.72)
+                                if isRevealed {
+                                    Image(systemName: copiedAddress == address ? "checkmark" : "doc.on.doc")
+                                        .foregroundStyle(copiedAddress == address ? Color.green : Color.secondary)
+                                        .frame(width: 13)
+                                }
+                            }
+                            .monospaced()
+                            .frame(height: 18)
+                        }
+                        .buttonStyle(.plain)
+                        .frame(height: 18)
+                        .disabled(!isRevealed)
+                        .help(isRevealed ? "点击复制 \(label) 地址" : "")
+                    }
+                }
+                .font(.caption)
+                .multilineTextAlignment(.trailing)
+            }
         }
     }
 }
