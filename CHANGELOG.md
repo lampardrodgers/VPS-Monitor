@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## web-v0.3.1 - 2026-08-12
+
+- Published the synchronized patch release for the Web module.
+- Kept the API proxy and external SSH configuration behavior unchanged from v0.3.0.
+
 ## web-v0.3.0 - 2026-08-11
 
 - Added a server-backed retention settings panel for curve and collector-log history.
