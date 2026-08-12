@@ -4,7 +4,7 @@ VPS Monitor 的只读采集与查询服务。它从多家 VPS 供应商 API 采�
 SQLite，并向 [`mac`](https://github.com/lampardrodgers/VPS-Monitor/tree/mac) 与
 [`web`](https://github.com/lampardrodgers/VPS-Monitor/tree/web) 客户端提供统一接口。
 
-当前版本：`0.3.0`。
+当前版本：`0.3.1`。
 
 ## 一键配置
 

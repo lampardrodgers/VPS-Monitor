@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## api-v0.3.1 - 2026-08-12
+
+- Published the synchronized patch release for the API module.
+- Kept the API contract and secret-handling boundaries unchanged from v0.3.0.
+
 ## api-v0.3.0 - 2026-08-11
 
 - Added RackNerd through the read-only SolusVM client `info` and `status` actions.
