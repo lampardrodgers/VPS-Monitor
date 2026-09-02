@@ -1,0 +1,34 @@
+[Unit]
+Description=VPS Monitor API
+Wants=network-online.target
+After=network-online.target vpsmonitor-provider.service
+
+[Service]
+Type=simple
+User=vpsmonitor
+Group=vpsmonitor
+WorkingDirectory=/var/lib/vpsmonitor
+Environment=PYTHONUNBUFFERED=1
+Environment=VPSMON_CONFIG=/etc/vpsmonitor/providers.yaml
+Environment=VPSMON_ENV_FILE=/etc/vpsmonitor/secrets.env
+Environment=VPSMON_API_HOST=127.0.0.1
+Environment=VPSMON_API_PORT=18787
+Environment=VPSMON_LIVE_MIN_INTERVAL_SECONDS=30
+ExecStart=/opt/vpsmonitor/venv/bin/vpsmonitor-api
+Restart=on-failure
+RestartSec=10s
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/vpsmonitor
+ReadWritePaths=/var/lib/vpsmonitor
+
+[Install]
+WantedBy=multi-user.target

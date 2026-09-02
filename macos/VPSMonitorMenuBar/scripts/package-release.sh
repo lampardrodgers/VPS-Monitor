@@ -1,0 +1,28 @@
+#!/bin/zsh
+
+set -euo pipefail
+
+SCRIPT_DIR=${0:A:h}
+PROJECT_DIR=${SCRIPT_DIR:h}
+REPOSITORY_DIR=${PROJECT_DIR:h:h}
+cd "$PROJECT_DIR"
+
+VPSMON_CODESIGN_IDENTITY="${VPSMON_CODESIGN_IDENTITY:-Developer ID Application: Jiehao Sun (SYL39J56SB)}"
+VPSMON_PROVISIONING_PROFILE="${VPSMON_PROVISIONING_PROFILE:-$REPOSITORY_DIR/VPS_Monitor_macOS_Developer_ID_CloudKit.provisionprofile}"
+VPSMON_NOTARY_PROFILE="${VPSMON_NOTARY_PROFILE:-vpsmonitor-notary}"
+export VPSMON_CODESIGN_IDENTITY VPSMON_PROVISIONING_PROFILE VPSMON_NOTARY_PROFILE
+
+VPSMON_CLOUDKIT_ENVIRONMENT=Production \
+VPSMON_HARDENED_RUNTIME=1 \
+"$SCRIPT_DIR/build-app.sh"
+
+APP_DIR="$PROJECT_DIR/dist/VPS Monitor.app"
+VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$APP_DIR/Contents/Info.plist")
+ARCHIVE_PATH="${VPSMON_RELEASE_ARCHIVE:-$PROJECT_DIR/dist/VPS Monitor $VERSION.zip}"
+
+codesign --verify --deep --strict --verbose=2 "$APP_DIR"
+ditto -c -k --sequesterRsrc --keepParent "$APP_DIR" "$ARCHIVE_PATH"
+
+VPSMON_SKIP_BUILD=1 VPSMON_REQUIRE_NOTARIZATION=1 "$SCRIPT_DIR/package-dmg.sh"
+
+echo "$ARCHIVE_PATH"

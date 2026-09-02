@@ -1,0 +1,43 @@
+# 凭据 —— 绝对不能进版本库
+config/providers.yaml
+config/*.local.yaml
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
+
+# 意外生成的本地签名/权限描述文件
+:-
+
+# 数据
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+.pytest_cache/
+
+# 前端
+node_modules/
+dist/
+build/
+
+# Swift / Xcode
+.build/
+.build-*/
+.swiftpm/
+DerivedData/
+xcuserdata/
+*.xcuserstate
+
+# 系统
+.DS_Store

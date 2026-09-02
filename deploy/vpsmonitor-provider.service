@@ -1,0 +1,31 @@
+[Unit]
+Description=VPS provider metrics collector
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+User=vpsmonitor
+Group=vpsmonitor
+WorkingDirectory=/var/lib/vpsmonitor
+Environment=PYTHONUNBUFFERED=1
+Environment=VPSMON_CONFIG=/etc/vpsmonitor/providers.yaml
+Environment=VPSMON_ENV_FILE=/etc/vpsmonitor/secrets.env
+ExecStart=/opt/vpsmonitor/venv/bin/vpsmonitor run
+Restart=on-failure
+RestartSec=15s
+UMask=0027
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/etc/vpsmonitor
+ReadWritePaths=/var/lib/vpsmonitor
+
+[Install]
+WantedBy=multi-user.target

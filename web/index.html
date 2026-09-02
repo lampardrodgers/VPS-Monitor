@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN" class="dark">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="robots" content="noindex, nofollow" />
+    <title>VPS 监控中心</title>
+    <script>
+      // 在首帧之前应用主题，避免闪白。
+      try {
+        var stored = localStorage.getItem('vpsmon.theme')
+        var theme = stored === 'light' || stored === 'dark' ? stored : 'dark'
+        document.documentElement.classList.toggle('dark', theme === 'dark')
+        document.documentElement.style.colorScheme = theme
+      } catch (error) {
+        void error
+      }
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.application-identifier</key>
+	<string>SYL39J56SB.com.lampardrodgers.vpsmonitor.menubar</string>
+	<key>com.apple.developer.team-identifier</key>
+	<string>SYL39J56SB</string>
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.com.lampardrodgers.vpsmonitor.menubar</string>
+	</array>
+	<key>com.apple.developer.icloud-container-development-container-identifiers</key>
+	<array>
+		<string>iCloud.com.lampardrodgers.vpsmonitor.menubar</string>
+	</array>
+	<key>com.apple.developer.icloud-container-environment</key>
+	<string>Development</string>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudKit</string>
+	</array>
+</dict>
+</plist>
