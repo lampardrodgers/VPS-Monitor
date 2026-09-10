@@ -1,5 +1,11 @@
 # 项目协作说明
 
+## macOS 更新与 GitHub 发布
+
+- macOS App 版本有更新时，必须构建并更新本地 App，退出旧进程后安装、启动新版本，保留现有用户配置。
+- 上传或发布包含 macOS 更新的版本到 GitHub 时，必须同时通过下述正式一键打包入口生成对应版本的新 DMG，完成签名、公证、装订及最终验证，并将 DMG 上传至对应的 GitHub Release。
+- App 版本号、Git Tag、更新日志、DMG 文件名及 GitHub Release 版本必须一致；不得只上传源码而遗漏新 DMG。
+
 ## macOS 正式 DMG 签名与公证
 
 - 正式分发的 macOS 安装包必须依次完成 Developer ID 签名、Apple 公证（notarization）和票据装订（stapling），不能只生成未公证的 DMG。
