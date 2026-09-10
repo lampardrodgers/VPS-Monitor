@@ -3,7 +3,7 @@
 一个纯原生 SwiftUI 菜单栏应用，对接
 [`api` 分支](https://github.com/lampardrodgers/VPS-Monitor/blob/api/docs/API.md)定义的监控 API。
 
-当前版本：`0.4.1`。
+当前版本：`0.4.2`。
 
 ## 功能
 
@@ -48,7 +48,7 @@ open "dist/VPS Monitor.app"
 ./scripts/package-dmg.sh
 ```
 
-DMG 默认位于 `dist/VPS Monitor 0.4.1.dmg`。正式分发时应设置 Developer ID 签名、
+DMG 默认位于 `dist/VPS Monitor 0.4.2.dmg`。正式分发时应设置 Developer ID 签名、
 provisioning profile，并通过 `VPSMON_NOTARY_PROFILE` 提交 Apple 公证。
 `package-release.sh` 会强制要求已配置公证凭据，避免生成未公证的正式发布包。
 

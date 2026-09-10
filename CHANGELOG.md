@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.4.2 - 2026-09-10
+
+- Added a native menu bar context menu for Settings, launch at login, refresh intervals, immediate refresh, and quitting.
+- Improved first-run Settings opening through the SwiftUI Settings action and refreshed login-item status when the app becomes active.
+- Added a standalone custom refresh interval window with consistent apply and cancel behavior.
+- Refined the server list scrollbar with a subtle overlay appearance while preserving native scrolling and accessibility contrast.
+
 ## v0.4.1 - 2026-09-02
 
 - Consolidated the API, Web client, and native macOS menu bar client into one repository snapshot.

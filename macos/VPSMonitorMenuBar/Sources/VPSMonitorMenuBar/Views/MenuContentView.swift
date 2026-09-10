@@ -62,6 +62,7 @@ struct MenuContentView: View {
                         }
                     }
                     .padding(12)
+                    .background(SubtleScrollAppearance())
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .coordinateSpace(name: "serverReorderArea")

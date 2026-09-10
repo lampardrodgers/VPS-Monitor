@@ -235,6 +235,9 @@ struct SettingsView: View {
         .onChange(of: retentionSourceID) {
             Task { await loadRetention() }
         }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            loadLaunchAtLoginState()
+        }
     }
 
     private func loadSSHConnection() {
