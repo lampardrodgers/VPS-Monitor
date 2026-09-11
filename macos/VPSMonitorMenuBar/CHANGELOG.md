@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.4.3 - 2026-09-11
+
+- Fixed the right-click menu bar context menu opening scrolled with the first item hidden behind a scroll-up indicator; the menu is now presented natively below the status item.
+
 ## v0.4.2 - 2026-09-10
 
 - Added a native menu bar context menu for Settings, launch at login, refresh intervals, immediate refresh, and quitting.

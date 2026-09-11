@@ -75,11 +75,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if let event = NSApp.currentEvent,
            event.type == .rightMouseUp || event.modifierFlags.contains(.control) {
             menuBarPanelController?.hide()
-            let menu = makeContextMenu()
-            menu.popUp(positioning: nil, at: NSPoint(x: 0, y: sender.bounds.minY), in: sender)
+            showContextMenu()
             return
         }
         menuBarPanelController?.toggle(anchorPoint: NSEvent.mouseLocation)
+    }
+
+    /// Presents the context menu natively below the status item. Manual `popUp`
+    /// positions the menu's top edge under the cursor, which lands in the menu's
+    /// scroll-up hot zone and clips the first item behind a scroll arrow.
+    private func showContextMenu() {
+        guard let item = statusItem else { return }
+        item.menu = makeContextMenu()
+        item.button?.performClick(nil)
+        item.menu = nil
     }
 
     private func makeContextMenu() -> NSMenu {
