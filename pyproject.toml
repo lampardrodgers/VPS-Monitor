@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "vpsmonitor"
-version = "0.3.1"
+version = "0.4.1"
 description = "Provider API collectors for a unified VPS inventory and metrics store"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -20,6 +20,11 @@ dependencies = [
 [project.scripts]
 vpsmonitor = "vpsmonitor.cli:main"
 vpsmonitor-api = "vpsmonitor.api:run"
+
+[dependency-groups]
+dev = [
+  "pytest>=8,<10",
+]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/vpsmonitor"]

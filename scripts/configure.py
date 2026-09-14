@@ -42,6 +42,20 @@ def _secret(prompt: str) -> str:
         print("凭据不能为空。")
 
 
+def _integer(prompt: str, *, default: int, minimum: int) -> int:
+    while True:
+        value = _text(prompt, default=str(default))
+        try:
+            parsed = int(value)
+        except ValueError:
+            print("请输入整数。")
+            continue
+        if parsed < minimum:
+            print(f"不能小于 {minimum}。")
+            continue
+        return parsed
+
+
 def _csv(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
 
@@ -71,10 +85,16 @@ def _configure(template_path: Path) -> tuple[dict[str, Any], dict[str, str], lis
         raise RuntimeError("配置模板格式无效")
 
     config.setdefault("storage", {})["database"] = str(default_data_path())
+    poll = config.setdefault("poll", {})
+    poll["interval_seconds"] = _integer(
+        "定时检测间隔（秒）",
+        default=int(poll.get("interval_seconds", 300)),
+        minimum=30,
+    )
     providers: dict[str, Any] = config["providers"]
     secrets: dict[str, str] = {
         "VPSMON_API_HOST": "127.0.0.1",
-        "VPSMON_API_PORT": "8787",
+        "VPSMON_API_PORT": "18787",
         "VPSMON_LIVE_MIN_INTERVAL_SECONDS": "30",
     }
     enabled: list[str] = []

@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+## api-v0.4.1 - 2026-09-02
+
+- Added the VPS one-command installer safeguards and unified production service paths.
+
+## api-v0.4.0 - 2026-08-22
+
+- Added a one-command Linux VPS installer for provider setup, initial collection, and systemd services.
+- Unified production configuration under `/etc/vpsmonitor` and runtime data under `/var/lib/vpsmonitor`.
+- Added an interactive polling interval prompt and standardized the loopback API port on `18787`.
+
 ## api-v0.3.1 - 2026-08-12
 
 - Published the synchronized patch release for the API module.

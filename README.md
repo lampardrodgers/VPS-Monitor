@@ -4,9 +4,30 @@ VPS Monitor 的只读采集与查询服务。它从多家 VPS 供应商 API 采�
 SQLite，并向 [`mac`](https://github.com/lampardrodgers/VPS-Monitor/tree/mac) 与
 [`web`](https://github.com/lampardrodgers/VPS-Monitor/tree/web) 客户端提供统一接口。
 
-当前版本：`0.3.1`。
+当前版本：`0.4.1`。
 
-## 一键配置
+## VPS 一键安装
+
+在使用 systemd、Python 3.11+ 的 Linux VPS 上运行：
+
+```bash
+chmod +x scripts/install-vps.sh
+sudo ./scripts/install-vps.sh
+```
+
+脚本会逐项询问需要启用的供应商，并用隐藏输入读取凭据，然后自动创建专用系统用户、
+安装程序、执行首次采集，并启用以下服务：
+
+- `vpsmonitor-provider.service`：按配置间隔定时采集；
+- `vpsmonitor-api.service`：只监听 `127.0.0.1:18787`。
+
+生产配置保存在 `/etc/vpsmonitor/`，数据库保存在
+`/var/lib/vpsmonitor/vpsmonitor.sqlite3`。重新输入供应商凭据时运行
+`sudo ./scripts/install-vps.sh --reconfigure`。
+
+安装完成后，脚本会输出 Mac 应用“设置 → VPS 连接”需要填写的 SSH 地址。
+
+## 源码目录内配置
 
 要求 Python 3.11+ 和 [uv](https://docs.astral.sh/uv/)。克隆 `api` 分支后运行：
 
@@ -34,10 +55,10 @@ uv run vpsmonitor run
 uv run vpsmonitor-api
 ```
 
-API 默认仅监听 `127.0.0.1:8787`。服务会拒绝非回环监听；远程客户端应通过 SSH 隧道访问：
+一键安装后的 API 监听 `127.0.0.1:18787`。服务会拒绝非回环监听；远程客户端应通过 SSH 隧道访问：
 
 ```bash
-ssh -N -L 8787:127.0.0.1:8787 user@<SERVER_IP>
+ssh -N -L 8787:127.0.0.1:18787 user@<SERVER_IP>
 ```
 
 实时阿里云接口在服务端至少 30 秒复用一次结果，并合并并发请求，避免客户端轮询放大为

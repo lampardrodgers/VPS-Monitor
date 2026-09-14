@@ -6,6 +6,11 @@ config/*.local.yaml
 !.env.example
 *.pem
 *.key
+*.mobileprovision
+*.provisionprofile
+
+# 意外生成的本地签名/权限描述文件
+:-
 
 # 数据
 *.db
@@ -28,6 +33,7 @@ build/
 
 # Swift / Xcode
 .build/
+.build-*/
 .swiftpm/
 DerivedData/
 xcuserdata/
@@ -35,3 +41,6 @@ xcuserdata/
 
 # 系统
 .DS_Store
+
+# Temporary macOS DMG packaging contents
+.dmg-staging.*/
