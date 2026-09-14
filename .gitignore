@@ -44,3 +44,18 @@ xcuserdata/
 
 # Temporary macOS DMG packaging contents
 .dmg-staging.*/
+
+# Local files retained after module migration; develop in module worktrees.
+/macOS/
+/macos/
+/web/
+/src/
+/tests/
+/scripts/
+/config/
+/deploy/
+/docs/
+/README.api.md
+/pyproject.toml
+/uv.lock
+/.env.example
