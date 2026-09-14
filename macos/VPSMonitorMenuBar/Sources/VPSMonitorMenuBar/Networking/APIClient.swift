@@ -95,7 +95,7 @@ struct APIClient: Sendable {
     }
 
     func fetchHistory(provider: String, instanceKey: String, hours: Int) async throws -> InstanceHistoryResponse {
-        let limit = hours > 168 ? 10_000 : 1_000
+        let limit = hours > 24 ? 10_000 : 1_000
         return try await request(
             path: "/api/v1/instances/\(encodePath(provider))/\(encodePath(instanceKey))/history",
             query: [

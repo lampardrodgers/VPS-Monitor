@@ -62,9 +62,9 @@ struct MenuContentView: View {
                         }
                     }
                     .padding(12)
-                    .background(SubtleScrollAppearance())
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scrollIndicators(.hidden)
                 .coordinateSpace(name: "serverReorderArea")
                 .onPreferenceChange(InstanceFramePreferenceKey.self) {
                     reorderFrames = $0

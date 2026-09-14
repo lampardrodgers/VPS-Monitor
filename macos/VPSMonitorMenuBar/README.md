@@ -3,12 +3,13 @@
 一个纯原生 SwiftUI 菜单栏应用，对接
 [`api` 分支](https://github.com/lampardrodgers/VPS-Monitor/blob/api/docs/API.md)定义的监控 API。
 
-当前版本：`0.4.2`。
+当前版本：`0.4.9`。
 
 ## 功能
 
 - 点击菜单栏服务器图标查看全部 VPS、在线状态、CPU、内存、磁盘、网络和流量。
-- 点击 VPS 查看实例资料、全部 API 字段与 24 小时 / 7 天 / 30 天历史趋势。
+- 点击 VPS 查看实例资料、全部 API 字段与 24 小时 / 7 天 / 30 天历史趋势；多天视图按月/日显示时间轴。
+- 流量分析按小时或天展示累计流量增量、记录消耗、有效时段日均与最高记录时段，标明采样覆盖并排除重置与长间断。
 - 阿里云 SWAS 通过 `/api/v1/live/aliyun_swas` 实时刷新，默认每 5 分钟查询一次。
 - 顶部时间菜单支持 5 秒、30 秒、1/5/10/30 分钟、1/6/12/24 小时及自定义数值和单位。
 - 导入多个监控 API，默认连接 `http://127.0.0.1:8787`。
@@ -48,7 +49,7 @@ open "dist/VPS Monitor.app"
 ./scripts/package-dmg.sh
 ```
 
-DMG 默认位于 `dist/VPS Monitor 0.4.2.dmg`。正式分发时应设置 Developer ID 签名、
+DMG 默认位于 `dist/VPS Monitor 0.4.9.dmg`。正式分发时应设置 Developer ID 签名、
 provisioning profile，并通过 `VPSMON_NOTARY_PROFILE` 提交 Apple 公证。
 `package-release.sh` 会强制要求已配置公证凭据，避免生成未公证的正式发布包。
 
