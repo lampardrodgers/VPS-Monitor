@@ -4,9 +4,10 @@ struct CustomIntervalView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var value: Int
     @State private var unit: LiveIntervalUnit
+    let onDismiss: (() -> Void)?
     let onSave: (LiveRefreshSchedule) -> Void
 
-    init(current: LiveRefreshSchedule, onSave: @escaping (LiveRefreshSchedule) -> Void) {
+    init(current: LiveRefreshSchedule, onDismiss: (() -> Void)? = nil, onSave: @escaping (LiveRefreshSchedule) -> Void) {
         let initial: (value: Int, unit: LiveIntervalUnit)
         if let value = current.customValue, let unit = current.customUnit {
             initial = (value, unit)
@@ -21,6 +22,7 @@ struct CustomIntervalView: View {
         }
         _value = State(initialValue: initial.value)
         _unit = State(initialValue: initial.unit)
+        self.onDismiss = onDismiss
         self.onSave = onSave
     }
 
@@ -35,7 +37,7 @@ struct CustomIntervalView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
-                Button("取消") { dismiss() }
+                Button("取消") { close() }
             }
             .padding(18)
 
@@ -83,7 +85,7 @@ struct CustomIntervalView: View {
                 Spacer()
                 Button("应用") {
                     onSave(schedule)
-                    dismiss()
+                    close()
                 }
                 .keyboardShortcut(.defaultAction)
             }
@@ -91,6 +93,14 @@ struct CustomIntervalView: View {
         }
         .frame(width: 430, height: 300)
         .background(.ultraThinMaterial)
+    }
+
+    private func close() {
+        if let onDismiss {
+            onDismiss()
+        } else {
+            dismiss()
+        }
     }
 
     private var schedule: LiveRefreshSchedule {

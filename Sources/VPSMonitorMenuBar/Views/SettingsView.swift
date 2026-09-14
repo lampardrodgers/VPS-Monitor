@@ -10,9 +10,58 @@ struct SettingsView: View {
     @State private var isLoadingRetention = false
     @State private var isSavingRetention = false
     @State private var retentionError: String?
+    @State private var sshTarget = ""
+    @State private var sshRemotePort = String(SSHTunnelConfiguration.defaultRemotePort)
+    @State private var sshIdentityFile = ""
+    @State private var isTestingSSH = false
+    @State private var sshConnectionMessage: String?
+    @State private var sshConnectionSucceeded = false
+    @State private var launchAtLoginEnabled = false
+    @State private var isUpdatingLaunchAtLogin = false
+    @State private var launchAtLoginMessage: String?
 
     var body: some View {
         Form {
+            Section("iCloud 同步") {
+                Toggle("启用自动同步", isOn: Binding(
+                    get: { store.cloudSyncEnabled },
+                    set: { store.setCloudSyncEnabled($0) }
+                ))
+
+                HStack(spacing: 8) {
+                    Label(store.cloudSyncStatus.title, systemImage: store.cloudSyncStatus.systemImage)
+                    Spacer()
+                    if store.cloudSyncStatus == .syncing {
+                        ProgressView().controlSize(.small)
+                    }
+                    Button("立即同步") {
+                        Task { await store.syncCloudPreferencesNow() }
+                    }
+                    .disabled(!store.cloudSyncEnabled || store.cloudSyncStatus == .syncing)
+                }
+
+                if let lastCloudSyncAt = store.lastCloudSyncAt {
+                    Text("上次同步：\(lastCloudSyncAt.formatted(date: .abbreviated, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let cloudSyncSummary = store.cloudSyncSummary {
+                    Text(cloudSyncSummary.text)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if let detail = store.cloudSyncStatus.detail {
+                    Text(detail)
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+
+                Text("启用后会在每次打开 App、每天本地 0 点以及恢复网络时自动同步。断网期间继续使用本地设置，联网后自动补同步。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("监控源") {
                 ForEach(store.sources) { source in
                     HStack(spacing: 10) {
@@ -45,6 +94,60 @@ struct SettingsView: View {
                 }
             }
 
+            Section("VPS 连接") {
+                TextField("SSH 地址", text: $sshTarget, prompt: Text("root@203.0.113.10"))
+                    .textContentType(.URL)
+                TextField("远端 API 端口", text: $sshRemotePort)
+                TextField("SSH 私钥（可选）", text: $sshIdentityFile, prompt: Text("~/.ssh/id_ed25519"))
+
+                HStack {
+                    if isTestingSSH {
+                        ProgressView().controlSize(.small)
+                    }
+                    if let sshConnectionMessage {
+                        Label(
+                            sshConnectionMessage,
+                            systemImage: sshConnectionSucceeded ? "checkmark.circle.fill" : "exclamationmark.triangle.fill"
+                        )
+                        .font(.caption)
+                        .foregroundStyle(sshConnectionSucceeded ? Color.green : Color.red)
+                        .lineLimit(2)
+                    }
+                    Spacer()
+                    Button("保存并测试") {
+                        Task { await saveAndTestSSHConnection() }
+                    }
+                    .disabled(isTestingSSH || sshTarget.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                Text("使用 SSH Key 或系统 ssh-agent 登录。连接信息保存在 \(SSHTunnelConfiguration.storagePath)，供应商 API Key 始终只保存在 VPS。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            }
+
+            Section("启动") {
+                Toggle("登录时自动启动", isOn: Binding(
+                    get: { launchAtLoginEnabled },
+                    set: { setLaunchAtLogin($0) }
+                ))
+                .disabled(isUpdatingLaunchAtLogin)
+
+                if isUpdatingLaunchAtLogin {
+                    ProgressView("正在更新登录项…")
+                        .controlSize(.small)
+                }
+                if let launchAtLoginMessage {
+                    Label(launchAtLoginMessage, systemImage: "info.circle")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .lineLimit(2)
+                }
+                Text("开启后，macOS 登录完成时会自动启动 VPS Monitor，并继续在菜单栏运行。状态由 macOS 系统设置管理。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
             Section("刷新") {
                 LabeledContent("自动刷新", value: "菜单打开时每 60 秒")
                 LabeledContent("SSH 连接", value: "每轮临时建立")
@@ -55,6 +158,7 @@ struct SettingsView: View {
 
             Section("数据保留") {
                 Picker("监控源", selection: $retentionSourceID) {
+                    Text("选择监控源").tag(Optional<UUID>.none)
                     ForEach(store.sources) { source in
                         Text(source.name).tag(Optional(source.id))
                     }
@@ -100,7 +204,7 @@ struct SettingsView: View {
         }
         .formStyle(.grouped)
         .scrollContentBackground(.hidden)
-        .frame(width: 530, height: 590)
+        .frame(width: 560, height: 760)
         .background(.ultraThinMaterial)
         .sheet(isPresented: $isImporting) {
             ImportSourceView(store: store)
@@ -121,6 +225,8 @@ struct SettingsView: View {
             Text("只会移除本机菜单栏中的连接和缓存，不会删除服务器数据。")
         }
         .task {
+            loadSSHConnection()
+            loadLaunchAtLoginState()
             if retentionSourceID == nil {
                 retentionSourceID = store.sources.first?.id
             }
@@ -128,6 +234,61 @@ struct SettingsView: View {
         }
         .onChange(of: retentionSourceID) {
             Task { await loadRetention() }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
+            loadLaunchAtLoginState()
+        }
+    }
+
+    private func loadSSHConnection() {
+        guard let configuration = SSHTunnelConfiguration.load() else { return }
+        sshTarget = configuration.target
+        sshRemotePort = String(configuration.remotePort)
+        sshIdentityFile = configuration.identityFile ?? ""
+    }
+
+    private func loadLaunchAtLoginState() {
+        launchAtLoginEnabled = LaunchAtLogin.isEnabled
+        launchAtLoginMessage = LaunchAtLogin.statusMessage
+    }
+
+    private func setLaunchAtLogin(_ enabled: Bool) {
+        guard !isUpdatingLaunchAtLogin else { return }
+        isUpdatingLaunchAtLogin = true
+        launchAtLoginMessage = nil
+        Task { @MainActor in
+            defer { isUpdatingLaunchAtLogin = false }
+            do {
+                try LaunchAtLogin.setEnabled(enabled)
+                loadLaunchAtLoginState()
+            } catch {
+                launchAtLoginEnabled = LaunchAtLogin.isEnabled
+                launchAtLoginMessage = "无法更新登录项：\(error.localizedDescription)"
+            }
+        }
+    }
+
+    @MainActor
+    private func saveAndTestSSHConnection() async {
+        isTestingSSH = true
+        sshConnectionMessage = nil
+        sshConnectionSucceeded = false
+        defer { isTestingSSH = false }
+        do {
+            guard let port = Int(sshRemotePort), (1...65_535).contains(port) else {
+                throw SSHTunnelConfigurationError.invalidRemotePort
+            }
+            try SSHTunnelConfiguration.save(
+                target: sshTarget,
+                remotePort: port,
+                identityFile: sshIdentityFile
+            )
+            try await store.testDefaultSSHConnection()
+            sshConnectionSucceeded = true
+            sshConnectionMessage = "连接成功"
+            await store.refreshAll()
+        } catch {
+            sshConnectionMessage = error.localizedDescription
         }
     }
 

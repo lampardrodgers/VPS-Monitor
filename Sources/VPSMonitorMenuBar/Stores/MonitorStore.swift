@@ -1,5 +1,7 @@
 import Combine
+import CloudKit
 import Foundation
+import Network
 
 @MainActor
 final class MonitorStore: ObservableObject {
@@ -19,10 +21,24 @@ final class MonitorStore: ObservableObject {
     @Published private(set) var instanceAliases: [String: String]
     @Published private(set) var autoAdvanceResetTimeIDs: Set<String>
     @Published private(set) var countryOverrides: [String: String]
+    @Published private(set) var cloudSyncEnabled: Bool
+    @Published private(set) var cloudSyncStatus: CloudSyncStatus
+    @Published private(set) var lastCloudSyncAt: Date?
+    @Published private(set) var cloudSyncSummary: CloudSyncSummary?
 
     private var order: [String]
     private var resetDayAnchors: [String: Int]
     private var liveRefreshTask: Task<Void, Never>?
+    private var cloudSyncLoopTask: Task<Void, Never>?
+    private var cloudSyncDebounceTask: Task<Void, Never>?
+    private var networkMonitor: NWPathMonitor?
+    private var networkIsAvailable = true
+    private var cloudSyncFailureCount = 0
+    private var nextCloudSyncRetryAt: Date?
+    private var isApplyingCloudSync = false
+    private var syncSnapshot: CloudSyncSnapshot
+    private var clearedCountryOverrideIDs: Set<String>
+    private let cloudSyncService = CloudSyncService()
     private let sshTunnel = EphemeralSSHTunnel()
     private let defaults: UserDefaults
     private let sourcesKey = "monitor.sources.v1"
@@ -34,9 +50,23 @@ final class MonitorStore: ObservableObject {
     private let autoAdvanceResetTimesKey = "monitor.autoAdvanceResetTimes.v1"
     private let resetDayAnchorsKey = "monitor.resetDayAnchors.v1"
     private let countryOverridesKey = "monitor.countryOverrides.v1"
+    private let clearedCountryOverridesKey = "monitor.clearedCountryOverrides.v1"
+    private let syncSnapshotKey = "monitor.cloudSyncSnapshot.v1"
+    private let cloudSyncEnabledKey = "monitor.cloudSyncEnabled.v1"
+    private let lastCloudSyncAtKey = "monitor.lastCloudSyncAt.v1"
 
     init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
+        cloudSyncEnabled = false
+        cloudSyncStatus = .disabled
+        lastCloudSyncAt = nil
+        cloudSyncSummary = nil
+        syncSnapshot = CloudSyncSnapshot(
+            sources: [],
+            preferences: [],
+            order: [],
+            orderUpdatedAt: .distantPast
+        )
         if let data = defaults.data(forKey: sourcesKey),
            let decoded = try? JSONDecoder.vpsMonitor.decode([MonitorSource].self, from: data),
            !decoded.isEmpty {
@@ -81,13 +111,53 @@ final class MonitorStore: ObservableObject {
         } else {
             countryOverrides = [:]
         }
+        clearedCountryOverrideIDs = Set(defaults.stringArray(forKey: clearedCountryOverridesKey) ?? [])
         order = defaults.stringArray(forKey: orderKey) ?? []
+
+        let legacyToStableID = Self.instanceIDMigrationMap(for: instances)
+        order = Self.migrateIDs(order, using: legacyToStableID)
+        manualResetTimes = Self.migrateDictionary(manualResetTimes, using: legacyToStableID)
+        instanceAliases = Self.migrateDictionary(instanceAliases, using: legacyToStableID)
+        countryOverrides = Self.migrateDictionary(countryOverrides, using: legacyToStableID)
+        clearedCountryOverrideIDs = Set(Self.migrateIDs(Array(clearedCountryOverrideIDs), using: legacyToStableID))
+        resetDayAnchors = Self.migrateDictionary(resetDayAnchors, using: legacyToStableID)
+        autoAdvanceResetTimeIDs = Set(Self.migrateIDs(Array(autoAdvanceResetTimeIDs), using: legacyToStableID))
+
+        if let data = defaults.data(forKey: syncSnapshotKey),
+           let decoded = try? Self.syncDecoder.decode(CloudSyncSnapshot.self, from: data) {
+            syncSnapshot = CloudSyncMerger.migratedSnapshot(decoded, using: legacyToStableID)
+        } else {
+            syncSnapshot = CloudSyncSnapshot.bootstrap(
+                sources: sources,
+                order: order,
+                aliases: instanceAliases,
+                countryOverrides: countryOverrides,
+                clearedCountryOverrideIDs: clearedCountryOverrideIDs,
+                manualResetTimes: manualResetTimes,
+                autoAdvanceResetTimeIDs: autoAdvanceResetTimeIDs,
+                resetDayAnchors: resetDayAnchors
+            )
+        }
+        cloudSyncEnabled = defaults.bool(forKey: cloudSyncEnabledKey)
+        lastCloudSyncAt = defaults.object(forKey: lastCloudSyncAtKey) as? Date
+        if cloudSyncEnabled, let lastCloudSyncAt {
+            cloudSyncStatus = .synced(lastCloudSyncAt)
+        } else {
+            cloudSyncStatus = cloudSyncEnabled ? .waitingForNetwork : .disabled
+        }
         instances = Self.sorted(instances, using: order)
         advanceExpiredResetTimes()
+        // Persist the migrated representation immediately. This prevents an
+        // older CloudKit payload from being reintroduced on the next launch.
+        persistPreferenceValues()
+        persistSyncSnapshot()
     }
 
     deinit {
         liveRefreshTask?.cancel()
+        cloudSyncLoopTask?.cancel()
+        cloudSyncDebounceTask?.cancel()
+        networkMonitor?.cancel()
     }
 
     var totalCount: Int { instances.count }
@@ -115,6 +185,158 @@ final class MonitorStore: ObservableObject {
             return "临时 SSH 连接失败或监控 API 未启动"
         }
         return "部分监控源暂时不可用，正在显示上次成功数据"
+    }
+
+    func startCloudSyncLoop() {
+        guard cloudSyncEnabled, cloudSyncLoopTask == nil else { return }
+        startNetworkMonitor()
+        cloudSyncLoopTask = Task { [weak self] in
+            guard let self else { return }
+            await self.performCloudSync(trigger: .launch)
+            while !Task.isCancelled {
+                do {
+                    try await Task.sleep(for: .seconds(60))
+                } catch {
+                    return
+                }
+                await self.performScheduledCloudSyncIfNeeded()
+            }
+        }
+    }
+
+    func setCloudSyncEnabled(_ enabled: Bool) {
+        guard cloudSyncEnabled != enabled else { return }
+        cloudSyncEnabled = enabled
+        defaults.set(enabled, forKey: cloudSyncEnabledKey)
+
+        if enabled {
+            cloudSyncStatus = .waitingForNetwork
+            startCloudSyncLoop()
+            scheduleCloudSyncAfterLocalChange(delay: 0.1)
+        } else {
+            cloudSyncLoopTask?.cancel()
+            cloudSyncLoopTask = nil
+            cloudSyncDebounceTask?.cancel()
+            cloudSyncDebounceTask = nil
+            networkMonitor?.cancel()
+            networkMonitor = nil
+            networkIsAvailable = true
+            nextCloudSyncRetryAt = nil
+            cloudSyncStatus = .disabled
+        }
+    }
+
+    func syncCloudPreferencesNow() async {
+        guard cloudSyncEnabled else {
+            cloudSyncStatus = .disabled
+            return
+        }
+        await performCloudSync(trigger: .manual)
+    }
+
+    private func performScheduledCloudSyncIfNeeded() async {
+        guard cloudSyncEnabled else { return }
+        let now = Date()
+        if let retryAt = nextCloudSyncRetryAt {
+            guard retryAt <= now else { return }
+            await performCloudSync(trigger: .retry)
+            return
+        }
+
+        let today = Calendar.current.startOfDay(for: now)
+        if lastCloudSyncAt == nil || lastCloudSyncAt! < today {
+            await performCloudSync(trigger: .daily)
+        }
+    }
+
+    private func performCloudSync(trigger: CloudSyncTrigger) async {
+        guard cloudSyncEnabled else { return }
+        guard cloudSyncStatus != .syncing else { return }
+        if trigger != .launch, trigger != .manual, !networkIsAvailable {
+            cloudSyncStatus = .waitingForNetwork
+            return
+        }
+
+        cloudSyncStatus = .syncing
+        let localSnapshot = makeLocalSyncSnapshot()
+        do {
+            let result = try await cloudSyncService.sync(
+                local: localSnapshot,
+                legacyIDMapping: Self.instanceIDMigrationMap(for: instances)
+            )
+            let sourcesBefore = sources
+            applyCloudSyncSnapshot(result.snapshot)
+            cloudSyncSummary = result.summary
+            lastCloudSyncAt = result.summary.completedAt
+            defaults.set(lastCloudSyncAt, forKey: lastCloudSyncAtKey)
+            cloudSyncFailureCount = 0
+            nextCloudSyncRetryAt = nil
+            cloudSyncStatus = .synced(result.summary.completedAt)
+
+            if sourcesBefore != sources {
+                await refresh()
+            }
+        } catch {
+            cloudSyncFailureCount = min(cloudSyncFailureCount + 1, 7)
+            let retrySeconds = min(3_600.0, 30.0 * pow(2.0, Double(cloudSyncFailureCount - 1)))
+            nextCloudSyncRetryAt = Date().addingTimeInterval(retrySeconds)
+            if let syncError = error as? CloudSyncError,
+               case .accountUnavailable = syncError {
+                nextCloudSyncRetryAt = Date().addingTimeInterval(86_400)
+            }
+            handleCloudSyncError(error)
+        }
+    }
+
+    private func handleCloudSyncError(_ error: Error) {
+        if let error = error as? CloudSyncError {
+            switch error {
+            case .networkUnavailable:
+                cloudSyncStatus = .waitingForNetwork
+            case .accountUnavailable:
+                cloudSyncStatus = .unavailable(error.localizedDescription)
+            case .invalidRecord, .conflictRetryExhausted:
+                cloudSyncStatus = .failed(error.localizedDescription)
+            }
+            return
+        }
+        if let error = error as? CKError,
+           error.code == .networkFailure || error.code == .networkUnavailable {
+            cloudSyncStatus = .waitingForNetwork
+        } else {
+            cloudSyncStatus = .failed(error.localizedDescription)
+        }
+    }
+
+    private func startNetworkMonitor() {
+        guard networkMonitor == nil else { return }
+        let monitor = NWPathMonitor()
+        networkMonitor = monitor
+        monitor.pathUpdateHandler = { [weak self] path in
+            let available = path.status == .satisfied
+            Task { @MainActor [weak self] in
+                guard let self else { return }
+                let recovered = available && !self.networkIsAvailable
+                self.networkIsAvailable = available
+                guard recovered, self.cloudSyncEnabled else { return }
+                self.scheduleCloudSyncAfterLocalChange(delay: 2)
+            }
+        }
+        monitor.start(queue: DispatchQueue(label: "VPSMonitor.CloudSync.Network"))
+    }
+
+    private func scheduleCloudSyncAfterLocalChange(delay: TimeInterval = 2) {
+        guard cloudSyncEnabled, !isApplyingCloudSync else { return }
+        cloudSyncDebounceTask?.cancel()
+        cloudSyncDebounceTask = Task { [weak self] in
+            do {
+                try await Task.sleep(for: .seconds(delay))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            await self?.performCloudSync(trigger: .localChange)
+        }
     }
 
     func refresh() async {
@@ -184,6 +406,7 @@ final class MonitorStore: ObservableObject {
             Self.preservingNewerAliyun(existing: instances, incoming: incoming),
             using: order
         )
+        migratePreferenceIDsToCurrentInstances()
         lastRefreshAt = .now
         persistCache()
     }
@@ -296,6 +519,7 @@ final class MonitorStore: ObservableObject {
 
         if successCount > 0 {
             instances = Self.sorted(Self.unique(nextInstances), using: order)
+            migratePreferenceIDsToCurrentInstances()
             lastAliyunLiveAt = newestCompletedAt ?? .now
             lastAliyunDurationMs = latestDuration
             liveRefreshError = errors.isEmpty ? nil : "部分监控源的阿里云实时查询失败"
@@ -348,6 +572,14 @@ final class MonitorStore: ObservableObject {
         persistSources()
     }
 
+    func testDefaultSSHConnection() async throws {
+        let source = sources.first(where: { sshTunnel.requiresTunnel(for: $0) }) ?? .local
+        let acquiredTunnel = try await sshTunnel.acquireIfNeeded(for: [source])
+        defer { sshTunnel.release(acquiredTunnel) }
+        let client = try APIClient(baseURL: source.normalizedBaseURL)
+        _ = try await client.fetchHealth()
+    }
+
     /// Moves continuously as the pointer enters another row. When dragging
     /// downward, the item lands after the row under the pointer; upward it
     /// lands before it, matching the native macOS list interaction.
@@ -388,6 +620,7 @@ final class MonitorStore: ObservableObject {
         if let data = try? JSONEncoder.vpsMonitor.encode(instanceAliases) {
             defaults.set(data, forKey: aliasesKey)
         }
+        scheduleCloudSyncAfterLocalChange()
     }
 
     func apiCountryCode(for instance: MonitoredInstance) -> String? {
@@ -404,10 +637,18 @@ final class MonitorStore: ObservableObject {
 
     func setCountryOverride(_ countryCode: String?, for instance: MonitoredInstance) {
         let normalized = countryCode?.uppercased()
-        countryOverrides[instance.id] = CountryCatalog.country(for: normalized) == nil ? nil : normalized
+        if let normalized, CountryCatalog.country(for: normalized) != nil {
+            countryOverrides[instance.id] = normalized
+            clearedCountryOverrideIDs.remove(instance.id)
+        } else {
+            countryOverrides[instance.id] = nil
+            clearedCountryOverrideIDs.insert(instance.id)
+        }
         if let data = try? JSONEncoder.vpsMonitor.encode(countryOverrides) {
             defaults.set(data, forKey: countryOverridesKey)
         }
+        defaults.set(Array(clearedCountryOverrideIDs).sorted(), forKey: clearedCountryOverridesKey)
+        scheduleCloudSyncAfterLocalChange()
     }
 
     func effectiveResetTime(for instance: MonitoredInstance) -> Date? {
@@ -510,12 +751,14 @@ final class MonitorStore: ObservableObject {
             defaults.set(data, forKey: resetDayAnchorsKey)
         }
         defaults.set(Array(autoAdvanceResetTimeIDs).sorted(), forKey: autoAdvanceResetTimesKey)
+        scheduleCloudSyncAfterLocalChange()
     }
 
     private func applyOrder(_ ids: [String]) {
         order = ids
         defaults.set(ids, forKey: orderKey)
         instances = Self.sorted(instances, using: order)
+        scheduleCloudSyncAfterLocalChange()
     }
 
     func fetchHistory(for instance: MonitoredInstance, hours: Int) async throws -> InstanceHistoryResponse {
@@ -552,16 +795,189 @@ final class MonitorStore: ObservableObject {
         )
     }
 
+    private func makeLocalSyncSnapshot() -> CloudSyncSnapshot {
+        let now = Date()
+        let migration = Self.instanceIDMigrationMap(for: instances)
+        syncSnapshot = CloudSyncMerger.migratedSnapshot(syncSnapshot, using: migration)
+        var sourceEntries = Dictionary(uniqueKeysWithValues: syncSnapshot.sources.map { ($0.key, $0) })
+        let currentSourceKeys = Set(sources.map(\.syncKey))
+
+        for source in sources {
+            let key = source.syncKey
+            let current = CloudSyncSourceEntry(
+                key: key,
+                id: source.id,
+                name: source.name,
+                baseURL: source.normalizedBaseURL,
+                isEnabled: source.isEnabled,
+                updatedAt: now,
+                deletedAt: nil
+            )
+            if let existing = sourceEntries[key],
+               existing.name == current.name,
+               existing.baseURL == current.baseURL,
+               existing.isEnabled == current.isEnabled,
+               existing.deletedAt == nil {
+                continue
+            }
+            sourceEntries[key] = current
+        }
+
+        for key in sourceEntries.keys where !currentSourceKeys.contains(key) {
+            guard var entry = sourceEntries[key], entry.deletedAt == nil else { continue }
+            entry.deletedAt = now
+            entry.updatedAt = now
+            sourceEntries[key] = entry
+        }
+
+        var preferenceIDs = Set(syncSnapshot.preferences.map(\.id))
+        preferenceIDs.formUnion(instanceAliases.keys)
+        preferenceIDs.formUnion(countryOverrides.keys)
+        preferenceIDs.formUnion(manualResetTimes.keys)
+        preferenceIDs.formUnion(autoAdvanceResetTimeIDs)
+        preferenceIDs.formUnion(resetDayAnchors.keys)
+
+        var preferenceEntries = Dictionary(uniqueKeysWithValues: syncSnapshot.preferences.map { ($0.id, $0) })
+        for id in preferenceIDs {
+            let current = CloudSyncPreferenceEntry(
+                id: id,
+                alias: instanceAliases[id],
+                countryOverride: countryOverrides[id],
+                manualResetTime: manualResetTimes[id],
+                resetDayAnchor: resetDayAnchors[id],
+                autoAdvance: autoAdvanceResetTimeIDs.contains(id),
+                updatedAt: now,
+                countryOverrideCleared: clearedCountryOverrideIDs.contains(id) && countryOverrides[id] == nil
+            )
+            if let existing = preferenceEntries[id],
+               existing.alias == current.alias,
+               existing.countryOverride == current.countryOverride,
+               existing.manualResetTime == current.manualResetTime,
+               existing.resetDayAnchor == current.resetDayAnchor,
+               existing.autoAdvance == current.autoAdvance {
+                continue
+            }
+            preferenceEntries[id] = current
+        }
+
+        let orderUpdatedAt = order == syncSnapshot.order ? syncSnapshot.orderUpdatedAt : now
+        syncSnapshot = CloudSyncSnapshot(
+            version: CloudSyncSnapshot.currentVersion,
+            sources: sourceEntries.values.sorted { $0.key < $1.key },
+            preferences: preferenceEntries.values.sorted { $0.id < $1.id },
+            order: order,
+            orderUpdatedAt: orderUpdatedAt
+        )
+        persistSyncSnapshot()
+        return syncSnapshot
+    }
+
+    private func applyCloudSyncSnapshot(_ snapshot: CloudSyncSnapshot) {
+        isApplyingCloudSync = true
+        defer { isApplyingCloudSync = false }
+
+        let snapshot = CloudSyncMerger.migratedSnapshot(
+            snapshot,
+            using: Self.instanceIDMigrationMap(for: instances)
+        )
+
+        let existingByKey = Dictionary(uniqueKeysWithValues: sources.map { ($0.syncKey, $0) })
+        let activeEntries = snapshot.sources.filter { !$0.isDeleted }
+        sources = activeEntries.sorted { $0.key < $1.key }.map { entry in
+            let existingID = existingByKey[entry.key]?.id ?? entry.id
+            return MonitorSource(
+                id: existingID,
+                name: entry.name,
+                baseURL: entry.baseURL,
+                isEnabled: entry.isEnabled
+            )
+        }
+
+        let sourceIDs = Set(sources.map(\.id))
+        instances.removeAll { !sourceIDs.contains($0.source.id) }
+        summaries = summaries.filter { sourceIDs.contains($0.key) }
+        providers = providers.filter { sourceIDs.contains($0.key) }
+        sourceErrors = sourceErrors.filter { sourceIDs.contains($0.key) }
+        order = snapshot.order
+
+        for entry in snapshot.preferences {
+            instanceAliases[entry.id] = entry.alias
+            if let countryOverride = entry.countryOverride {
+                countryOverrides[entry.id] = countryOverride
+                clearedCountryOverrideIDs.remove(entry.id)
+            } else if entry.countryOverrideCleared {
+                countryOverrides[entry.id] = nil
+                clearedCountryOverrideIDs.insert(entry.id)
+            }
+            manualResetTimes[entry.id] = entry.manualResetTime
+            resetDayAnchors[entry.id] = entry.resetDayAnchor
+            if entry.autoAdvance {
+                autoAdvanceResetTimeIDs.insert(entry.id)
+            } else {
+                autoAdvanceResetTimeIDs.remove(entry.id)
+            }
+        }
+
+        syncSnapshot = snapshot
+        persistSources()
+        persistCache()
+        persistPreferenceValues()
+        persistSyncSnapshot()
+        instances = Self.sorted(Self.unique(instances), using: order)
+        migratePreferenceIDsToCurrentInstances()
+    }
+
+    private func persistPreferenceValues() {
+        if let data = try? JSONEncoder.vpsMonitor.encode(instanceAliases) {
+            defaults.set(data, forKey: aliasesKey)
+        }
+        if let data = try? JSONEncoder.vpsMonitor.encode(countryOverrides) {
+            defaults.set(data, forKey: countryOverridesKey)
+        }
+        defaults.set(Array(clearedCountryOverrideIDs).sorted(), forKey: clearedCountryOverridesKey)
+        if let data = try? JSONEncoder.vpsMonitor.encode(manualResetTimes) {
+            defaults.set(data, forKey: manualResetTimesKey)
+        }
+        if let data = try? JSONEncoder.vpsMonitor.encode(resetDayAnchors) {
+            defaults.set(data, forKey: resetDayAnchorsKey)
+        }
+        defaults.set(Array(autoAdvanceResetTimeIDs).sorted(), forKey: autoAdvanceResetTimesKey)
+        defaults.set(order, forKey: orderKey)
+    }
+
+    private func persistSyncSnapshot() {
+        if let data = try? Self.syncEncoder.encode(syncSnapshot) {
+            defaults.set(data, forKey: syncSnapshotKey)
+        }
+    }
+
     private func persistSources() {
         if let data = try? JSONEncoder.vpsMonitor.encode(sources) {
             defaults.set(data, forKey: sourcesKey)
         }
+        scheduleCloudSyncAfterLocalChange()
     }
 
     private func persistCache() {
         if let data = try? JSONEncoder.vpsMonitor.encode(instances) {
             defaults.set(data, forKey: instancesKey)
         }
+    }
+
+    private func migratePreferenceIDsToCurrentInstances() {
+        let mapping = Self.instanceIDMigrationMap(for: instances)
+        guard !mapping.isEmpty else { return }
+
+        order = Self.migrateIDs(order, using: mapping)
+        manualResetTimes = Self.migrateDictionary(manualResetTimes, using: mapping)
+        instanceAliases = Self.migrateDictionary(instanceAliases, using: mapping)
+        countryOverrides = Self.migrateDictionary(countryOverrides, using: mapping)
+        clearedCountryOverrideIDs = Set(Self.migrateIDs(Array(clearedCountryOverrideIDs), using: mapping))
+        resetDayAnchors = Self.migrateDictionary(resetDayAnchors, using: mapping)
+        autoAdvanceResetTimeIDs = Set(Self.migrateIDs(Array(autoAdvanceResetTimeIDs), using: mapping))
+        syncSnapshot = CloudSyncMerger.migratedSnapshot(syncSnapshot, using: mapping)
+        persistPreferenceValues()
+        persistSyncSnapshot()
     }
 
     private static func sorted(_ instances: [MonitoredInstance], using order: [String]) -> [MonitoredInstance] {
@@ -597,6 +1013,62 @@ final class MonitorStore: ObservableObject {
             return current
         }
     }
+
+    private static var syncEncoder: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+
+    private static var syncDecoder: JSONDecoder {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return decoder
+    }
+
+    private static func migrateIDs(_ ids: [String], using mapping: [String: String]) -> [String] {
+        var seen: Set<String> = []
+        return ids
+            .map { mapping[$0] ?? $0 }
+            .filter { seen.insert($0).inserted }
+    }
+
+    private static func migrateDictionary<Value>(
+        _ values: [String: Value],
+        using mapping: [String: String]
+    ) -> [String: Value] {
+        // Prefer an already-canonical value if both old and new IDs are
+        // present. Dictionary iteration order is otherwise unspecified and
+        // could make a migration randomly restore the wrong value.
+        var result = values.filter { mapping[$0.key] == nil }
+        for (key, value) in values where mapping[key] != nil {
+            let migratedKey = mapping[key]!
+            if result[migratedKey] == nil {
+                result[migratedKey] = value
+            }
+        }
+        return result
+    }
+
+    private static func instanceIDMigrationMap(
+        for instances: [MonitoredInstance]
+    ) -> [String: String] {
+        var mapping: [String: String] = [:]
+        for instance in instances {
+            mapping[instance.legacyID] = instance.id
+        }
+        return mapping
+    }
+}
+
+enum CloudSyncTrigger: Equatable {
+    case launch
+    case manual
+    case daily
+    case retry
+    case localChange
+    case networkRecovered
 }
 
 private enum FetchResult: Sendable {

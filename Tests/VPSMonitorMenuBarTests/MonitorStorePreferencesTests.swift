@@ -1,4 +1,5 @@
 import XCTest
+import Darwin
 @testable import VPSMonitorMenuBar
 
 @MainActor
@@ -78,6 +79,41 @@ final class MonitorStorePreferencesTests: XCTestCase {
         XCTAssertEqual(reloaded.effectiveCountryCode(for: instance), "US")
     }
 
+    func testLegacyCountryOverrideMigratesToStableInstanceID() throws {
+        let suiteName = "VPSMonitorMenuBarTests.\(UUID().uuidString)"
+        let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+
+        let instance = MonitoredInstance(
+            source: .local,
+            observation: InstanceObservation(
+                provider: "aliyun_swas",
+                instanceKey: "legacy-instance",
+                displayName: "Aliyun",
+                observedAt: "2030-01-01T00:00:00Z",
+                status: "running",
+                metrics: [:],
+                quota: [:],
+                metadata: [:]
+            )
+        )
+        let legacyCountryKey = instance.legacyID
+        let cachedData = try JSONEncoder.vpsMonitor.encode([instance])
+        defaults.set(cachedData, forKey: "monitor.cachedInstances.v1")
+        defaults.set(
+            try JSONEncoder.vpsMonitor.encode([legacyCountryKey: "CN"]),
+            forKey: "monitor.countryOverrides.v1"
+        )
+
+        let store = MonitorStore(defaults: defaults)
+
+        XCTAssertEqual(store.effectiveCountryCode(for: instance), "CN")
+        let saved = try XCTUnwrap(defaults.data(forKey: "monitor.countryOverrides.v1"))
+        let savedOverrides = try JSONDecoder.vpsMonitor.decode([String: String].self, from: saved)
+        XCTAssertEqual(savedOverrides[instance.id], "CN")
+        XCTAssertNil(savedOverrides[legacyCountryKey])
+    }
+
     func testCountryUsesOnlyExplicitAPIFields() {
         let regionOnly = InstanceObservation(
             provider: "test",
@@ -134,5 +170,28 @@ final class MonitorStorePreferencesTests: XCTestCase {
         XCTAssertTrue(configuration.applies(to: matching))
         XCTAssertFalse(configuration.applies(to: otherLocalPort))
         XCTAssertFalse(configuration.applies(to: remote))
+    }
+
+    func testSSHTunnelConfigurationSavesOutsideApplicationBundle() throws {
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("VPSMonitorMenuBarTests.\(UUID().uuidString)", isDirectory: true)
+        setenv("VPSMON_MACOS_CONFIG_DIR", directory.path, 1)
+        defer {
+            unsetenv("VPSMON_MACOS_CONFIG_DIR")
+            try? FileManager.default.removeItem(at: directory)
+        }
+
+        try SSHTunnelConfiguration.save(
+            target: "monitor@example.test",
+            remotePort: 18_787,
+            identityFile: "~/.ssh/id_ed25519"
+        )
+
+        let loaded = try XCTUnwrap(SSHTunnelConfiguration.load())
+        XCTAssertEqual(loaded.target, "monitor@example.test")
+        XCTAssertEqual(loaded.remotePort, 18_787)
+        XCTAssertTrue(loaded.identityFile?.hasSuffix("/.ssh/id_ed25519") == true)
+        let attributes = try FileManager.default.attributesOfItem(atPath: SSHTunnelConfiguration.storagePath)
+        XCTAssertEqual(attributes[.posixPermissions] as? NSNumber, NSNumber(value: 0o600))
     }
 }

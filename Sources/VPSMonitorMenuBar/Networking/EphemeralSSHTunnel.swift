@@ -9,7 +9,7 @@ enum SSHTunnelError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingConfiguration:
-            "未找到 SSH 配置（~/.config/vpsmonitor/web/.env.local）"
+            "尚未配置 VPS SSH 连接，请在应用设置中填写"
         case let .launchFailed(message):
             "无法启动 SSH：\(message)"
         case let .exited(status):
@@ -129,6 +129,7 @@ final class EphemeralSSHTunnel {
             "-o", "ConnectTimeout=10",
             "-o", "ConnectionAttempts=1",
             "-o", "ExitOnForwardFailure=yes",
+            "-o", "StrictHostKeyChecking=accept-new",
             "-o", "ServerAliveInterval=15",
             "-o", "ServerAliveCountMax=2",
             "-o", "ControlMaster=no",

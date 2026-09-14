@@ -18,50 +18,84 @@ struct ServerDetailView: View {
     private var server: InstanceObservation { current.observation }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                Button {
-                    dismiss()
-                } label: {
-                    Label("返回所有 VPS", systemImage: "chevron.left")
+        VStack(spacing: 0) {
+            navigationHeader
+            identity
+                .padding(.horizontal, 14)
+                .padding(.top, 6)
+                .padding(.bottom, 14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Divider()
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 14) {
+                        if isEditingAlias {
+                            InstanceAliasEditorView(instance: current, store: store) {
+                                isEditingAlias = false
+                            }
+                        }
+                        if isSelectingCountry {
+                            CountryPickerInlineView(instance: current, store: store) {
+                                isSelectingCountry = false
+                            }
+                        }
+                        IPAddressSection(
+                            addresses: server.ipAddresses,
+                            isRevealed: $areIPAddressesRevealed
+                        )
+                        resourceGrid
+                        trafficCard
+                        if isEditingResetTime {
+                            ResetTimeEditorView(instance: current, store: store) {
+                                isEditingResetTime = false
+                            }
+                        }
+                        HistoryChartView(instance: current, store: store)
+                        details
+                        rawValues
+                    }
+                    .padding(14)
+                    .id("detailContentTop")
                 }
-                .buttonStyle(.plain)
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(Color.accentColor)
-                identity
-                if isEditingAlias {
-                    InstanceAliasEditorView(instance: current, store: store) {
-                        isEditingAlias = false
+                .onChange(of: isEditingAlias) {
+                    if isEditingAlias {
+                        withAnimation { proxy.scrollTo("detailContentTop", anchor: .top) }
                     }
                 }
-                if isSelectingCountry {
-                    CountryPickerInlineView(instance: current, store: store) {
-                        isSelectingCountry = false
+                .onChange(of: isSelectingCountry) {
+                    if isSelectingCountry {
+                        withAnimation { proxy.scrollTo("detailContentTop", anchor: .top) }
                     }
                 }
-                IPAddressSection(
-                    addresses: server.ipAddresses,
-                    isRevealed: $areIPAddressesRevealed
-                )
-                resourceGrid
-                trafficCard
-                if isEditingResetTime {
-                    ResetTimeEditorView(instance: current, store: store) {
-                        isEditingResetTime = false
-                    }
-                }
-                HistoryChartView(instance: current, store: store)
-                details
-                rawValues
             }
-            .padding(14)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background {
             VisualEffectBackground(material: .underWindowBackground)
                 .ignoresSafeArea()
         }
+        .scrollIndicators(.hidden)
         .navigationTitle(store.displayName(for: current))
+    }
+
+    private var navigationHeader: some View {
+        HStack {
+            Button {
+                dismiss()
+            } label: {
+                Label("返回所有 VPS", systemImage: "chevron.left")
+                    .padding(.vertical, 4)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(Color.accentColor)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 14)
+        .padding(.vertical, 10)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
     }
 
     private var identity: some View {
@@ -444,7 +478,7 @@ private struct MetricTile: View {
     }
 }
 
-private struct SectionCard<Content: View>: View {
+struct SectionCard<Content: View>: View {
     let title: String
     let symbol: String
     @ViewBuilder let content: Content
@@ -480,108 +514,4 @@ private struct DetailRow: View {
         }
         .font(.caption)
     }
-}
-
-private struct HistoryChartView: View {
-    let instance: MonitoredInstance
-    @ObservedObject var store: MonitorStore
-    @State private var hours = 24
-    @State private var points: [HistoryPoint] = []
-    @State private var isLoading = false
-    @State private var errorMessage: String?
-
-    var body: some View {
-        SectionCard(title: "使用率趋势", symbol: "chart.xyaxis.line") {
-            Picker("时间范围", selection: $hours) {
-                Text("24 小时").tag(24)
-                Text("7 天").tag(168)
-                Text("30 天").tag(720)
-            }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-
-            Group {
-                if isLoading, points.isEmpty {
-                    ProgressView().frame(maxWidth: .infinity, minHeight: 150)
-                } else if let errorMessage, points.isEmpty {
-                    ContentUnavailableView("无法加载历史", systemImage: "chart.xyaxis.line", description: Text(errorMessage))
-                        .frame(height: 150)
-                } else if samples.isEmpty {
-                    ContentUnavailableView("暂无历史数据", systemImage: "chart.xyaxis.line")
-                        .frame(height: 150)
-                } else {
-                    Chart(samples) { sample in
-                        LineMark(
-                            x: .value("时间", sample.date),
-                            y: .value("使用率", sample.value),
-                            series: .value("分段", sample.segment)
-                        )
-                        .foregroundStyle(by: .value("指标", sample.metric))
-                        .lineStyle(StrokeStyle(lineWidth: 1.7))
-                    }
-                    .chartForegroundStyleScale(["CPU": Color.blue, "内存": Color.purple])
-                    .chartYScale(domain: 0...100)
-                    .chartYAxis {
-                        AxisMarks(position: .leading, values: [0, 50, 100]) {
-                            AxisGridLine().foregroundStyle(.secondary.opacity(0.16))
-                            AxisValueLabel(format: Decimal.FormatStyle.Percent.percent.scale(1))
-                        }
-                    }
-                    .chartXAxis {
-                        AxisMarks(values: .automatic(desiredCount: 4)) {
-                            AxisGridLine().foregroundStyle(.secondary.opacity(0.12))
-                            AxisValueLabel(format: .dateTime.hour().minute())
-                        }
-                    }
-                    .frame(height: 170)
-                }
-            }
-        }
-        .task(id: hours) { await load() }
-    }
-
-    private var samples: [HistorySample] {
-        let stride = max(1, points.count / 320)
-        let selected = points.enumerated().filter { $0.offset % stride == 0 }.map(\.element)
-        return samples(for: "CPU", points: selected, value: { $0.metric("cpu_percent") }) +
-            samples(for: "内存", points: selected, value: { $0.memoryPercent })
-    }
-
-    private func samples(
-        for metric: String,
-        points: [HistoryPoint],
-        value: (HistoryPoint) -> Double?
-    ) -> [HistorySample] {
-        var segment = 0
-        var result: [HistorySample] = []
-        for point in points {
-            guard let date = VPSFormat.date(point.observedAt), let metricValue = value(point) else {
-                segment += 1
-                continue
-            }
-            result.append(HistorySample(date: date, value: metricValue, metric: metric, segment: "\(metric)-\(segment)"))
-        }
-        return result
-    }
-
-    private func load() async {
-        isLoading = true
-        errorMessage = nil
-        defer { isLoading = false }
-        do {
-            points = try await store.fetchHistory(for: instance, hours: hours).points
-        } catch is CancellationError {
-            return
-        } catch {
-            errorMessage = error.localizedDescription
-        }
-    }
-}
-
-private struct HistorySample: Identifiable {
-    let id = UUID()
-    let date: Date
-    let value: Double
-    let metric: String
-    let segment: String
 }

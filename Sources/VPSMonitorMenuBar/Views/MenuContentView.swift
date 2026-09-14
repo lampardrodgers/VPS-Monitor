@@ -64,6 +64,7 @@ struct MenuContentView: View {
                     .padding(12)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .scrollIndicators(.hidden)
                 .coordinateSpace(name: "serverReorderArea")
                 .onPreferenceChange(InstanceFramePreferenceKey.self) {
                     reorderFrames = $0
@@ -342,10 +343,10 @@ struct MenuContentView: View {
                 .foregroundStyle(.secondary)
             Spacer()
             SettingsLink {
-                Image(systemName: "gearshape")
+                Label("设置", systemImage: "gearshape")
             }
             .buttonStyle(.borderless)
-            .help("设置")
+            .help("打开设置")
             Button {
                 NSApplication.shared.terminate(nil)
             } label: {

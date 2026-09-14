@@ -156,12 +156,47 @@ struct MonitorSource: Codable, Hashable, Sendable, Identifiable {
     var baseURL: String
     var isEnabled: Bool
 
+    private enum CodingKeys: String, CodingKey {
+        case id
+        case name
+        case baseURL
+        case baseUrl
+        case isEnabled
+    }
+
+    init(id: UUID, name: String, baseURL: String, isEnabled: Bool) {
+        self.id = id
+        self.name = name
+        self.baseURL = baseURL
+        self.isEnabled = isEnabled
+    }
+
     static let local = MonitorSource(
         id: UUID(uuidString: "A11CE000-0000-4000-8000-000000000001")!,
         name: "本机隧道",
         baseURL: "http://127.0.0.1:8787",
         isEnabled: true
     )
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(UUID.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        // `convertFromSnakeCase` maps `base_url` to `baseUrl`, while the
+        // Swift property intentionally keeps the URL acronym as `baseURL`.
+        // Accept both spellings so cached instances from older builds decode.
+        baseURL = try container.decodeIfPresent(String.self, forKey: .baseURL)
+            ?? container.decode(String.self, forKey: .baseUrl)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(name, forKey: .name)
+        try container.encode(baseURL, forKey: .baseURL)
+        try container.encode(isEnabled, forKey: .isEnabled)
+    }
 
     var normalizedBaseURL: String {
         baseURL.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(
@@ -170,13 +205,42 @@ struct MonitorSource: Codable, Hashable, Sendable, Identifiable {
             options: .regularExpression
         )
     }
+
+    /// A stable identity shared by devices. The local SSH tunnel is a single
+    /// logical source even though every Mac reaches it through localhost.
+    var syncKey: String {
+        if id == Self.local.id {
+            return "local-tunnel"
+        }
+        guard var components = URLComponents(string: normalizedBaseURL),
+              let scheme = components.scheme?.lowercased(),
+              let host = components.host?.lowercased() else {
+            return normalizedBaseURL.lowercased()
+        }
+        components.scheme = scheme
+        components.host = host
+        if (scheme == "http" && components.port == 80) ||
+            (scheme == "https" && components.port == 443) {
+            components.port = nil
+        }
+        components.query = nil
+        components.fragment = nil
+        let path = components.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        components.path = path.isEmpty ? "" : "/\(path)"
+        return components.string?.lowercased() ?? normalizedBaseURL.lowercased()
+    }
 }
 
 struct MonitoredInstance: Codable, Hashable, Sendable, Identifiable {
     let source: MonitorSource
     let observation: InstanceObservation
 
-    var id: String { "\(source.id.uuidString)|\(observation.provider)|\(observation.instanceKey)" }
+    var id: String { "\(source.syncKey)|\(observation.provider)|\(observation.instanceKey)" }
+
+    /// The identifier used before cross-device sync was introduced.
+    var legacyID: String {
+        "\(source.id.uuidString)|\(observation.provider)|\(observation.instanceKey)"
+    }
 }
 
 struct SourceSnapshot: Sendable {
