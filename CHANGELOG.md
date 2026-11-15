@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## api-v0.4.2 - 2026-11-15
+
+- Updated the RackNerd SolusVM collector default endpoint to `ctrl.racknerd.com` and added full `<ctrl>` XML document parsing compatibility.
+- Updated the Panstar collector to support normalized `status`, `productRegionName`, and `primaryIp` fields in read-only API responses.
+- Configured automatic retries and explicit connection/read timeouts for Aliyun SWAS SDK requests across cross-border networks.
+- Fixed virtualenv read/execute permissions under `umask 027` in `scripts/install-vps.sh` for the dedicated `vpsmonitor` service account.
+
 ## api-v0.4.1 - 2026-09-02
 
 - Added the VPS one-command installer safeguards and unified production service paths.

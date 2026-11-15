@@ -9,6 +9,24 @@ from vpsmonitor.collectors.aliyun_swas import AliyunSwasCollector
 
 
 class ProviderNormalizationTests(unittest.TestCase):
+    def test_racknerd_ctrl_full_document(self) -> None:
+        result = _parse_xml_fragment(
+            '<?xml version="1.0" encoding="UTF-8"?><ctrl>'
+            '<status>success</status><statusmsg>online</statusmsg></ctrl>'
+        )
+        self.assertEqual(result, {"status": "success", "statusmsg": "online"})
+
+    def test_panstar_new_read_only_schema(self) -> None:
+        result = PanstarCollector({}, timeout=1)._observation("1", {"id": 1}, {
+            "data": {"status": "RUNNING", "productRegionName": "Singapore",
+                     "primaryIp": "203.0.113.10", "planName": "SGLite Nano"}
+        })
+        self.assertEqual(result.status, "running")
+        self.assertEqual(result.metadata["region"], "Singapore")
+        self.assertEqual(result.metadata["ip"], "203.0.113.10")
+        self.assertEqual(result.metrics, {})
+        self.assertEqual(result.quota, {})
+
     def test_racknerd_solusvm_info_is_normalized_without_fake_memory(self) -> None:
         collector = RackNerdCollector({}, timeout=1)
         info = _parse_xml_fragment(

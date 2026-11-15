@@ -117,6 +117,7 @@ if [[ ! -x "$VENV_DIR/bin/python" ]]; then
 fi
 "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check --upgrade pip
 "$VENV_DIR/bin/python" -m pip install --disable-pip-version-check --upgrade "$project_dir"
+chmod -R a+rX "$VENV_DIR"
 
 if [[ ! -f "$CONFIG_FILE" || ! -f "$SECRETS_FILE" || "$reconfigure" -eq 1 ]]; then
   configure_args=(

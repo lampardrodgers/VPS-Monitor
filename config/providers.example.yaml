@@ -19,7 +19,7 @@ poll:
 providers:
   racknerd:
     enabled: false
-    base_url: https://nerdvm.racknerd.com/api/client/command.php
+    base_url: https://ctrl.racknerd.com/api/client/command.php
     # SolusVM Client API 凭据按 VPS 分配；新增机器时继续追加数组项。
     instances:
       - name: RackNerd 示例节点

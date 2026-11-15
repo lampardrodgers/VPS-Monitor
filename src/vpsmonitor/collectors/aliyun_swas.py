@@ -88,8 +88,8 @@ class AliyunSwasCollector(Collector):
             )
         return observations
 
-    @staticmethod
     def _client(
+        self,
         access_key_id: str,
         access_key_secret: str,
         region_id: str,
@@ -106,7 +106,17 @@ class AliyunSwasCollector(Collector):
             access_key_secret=access_key_secret,
         )
         config.endpoint = f"swas.{region_id}.aliyuncs.com"
-        return Client(config), models, util_models.RuntimeOptions()
+        timeout_ms = max(5000, int(self.timeout * 1000))
+        return (
+            Client(config),
+            models,
+            util_models.RuntimeOptions(
+                autoretry=True,
+                max_attempts=3,
+                connect_timeout=timeout_ms,
+                read_timeout=timeout_ms,
+            ),
+        )
 
     def _traffic(
         self,

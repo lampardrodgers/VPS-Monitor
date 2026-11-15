@@ -93,12 +93,14 @@ class PanstarCollector(Collector):
         )
         name = deep_find(combined, ("name", "instance_name", "instanceName", "hostname"))
         status = detail.get("deliveryStatus") or detail.get("deliveryPhase")
+        if not status:
+            status = str(detail.get("status") or "unknown").casefold()
         metadata = _without_none(
             {
                 "cpu_cores": as_number(detail.get("cpu")),
-                "region": deep_find(combined, ("region", "region_name", "regionName")),
+                "region": deep_find(combined, ("region", "region_name", "regionName", "productRegionName")),
                 "plan": deep_find(combined, ("plan", "plan_name", "planName", "package_name")),
-                "ip": deep_find(combined, ("ipv4", "ip", "ip_address", "ipAddress")),
+                "ip": deep_find(combined, ("ipv4", "ip", "ip_address", "ipAddress", "primaryIp")),
                 "expires_at": epoch_to_iso(detail.get("expireTime")),
                 "traffic_updated_at": epoch_to_iso(detail.get("lastTrafficUpdateTime")),
                 "os": detail.get("osType"),

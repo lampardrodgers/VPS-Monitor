@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from typing import Any
 
@@ -12,7 +13,7 @@ class RackNerdCollector(Collector):
     """Read-only RackNerd adapter for the per-VPS SolusVM 1 client API."""
 
     provider = "racknerd"
-    default_url = "https://nerdvm.racknerd.com/api/client/command.php"
+    default_url = "https://ctrl.racknerd.com/api/client/command.php"
 
     def collect(self) -> list[Observation]:
         entries = self.config.get("instances") or []
@@ -135,10 +136,14 @@ class RackNerdCollector(Collector):
 
 
 def _parse_xml_fragment(value: str) -> dict[str, str]:
+    text = re.sub(r"^\s*<\?xml[^>]*\?>", "", value).strip()
     try:
-        root = ET.fromstring(f"<response>{value}</response>")
+        root = ET.fromstring(f"<response>{text}</response>")
     except ET.ParseError as exc:
         raise ProviderError("RackNerd 返回的不是有效 SolusVM XML") from exc
+    children = list(root)
+    if len(children) == 1 and children[0].tag in {"ctrl", "response"}:
+        root = children[0]
     return {node.tag: node.text or "" for node in root}
 
 
