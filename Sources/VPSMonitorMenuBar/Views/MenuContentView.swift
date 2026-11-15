@@ -121,16 +121,20 @@ struct MenuContentView: View {
                 VStack(alignment: .leading, spacing: 1) {
                     Text("VPS Monitor")
                         .font(.headline)
+                        .lineLimit(1)
                     Text(statusLine)
                         .font(.caption)
                         .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
-                Spacer()
+                Spacer(minLength: 6)
                 intervalMenu
                 Button {
                     isReordering.toggle()
                 } label: {
                     Image(systemName: isReordering ? "checkmark" : "arrow.up.arrow.down")
+                        .frame(width: 16, height: 16)
                 }
                 .help(isReordering ? "完成排序" : "调整 VPS 顺序")
                 .buttonStyle(.borderless)
@@ -139,6 +143,7 @@ struct MenuContentView: View {
                     isImporting = true
                 } label: {
                     Image(systemName: "plus")
+                        .frame(width: 16, height: 16)
                 }
                 .help("导入 VPS 监控源")
                 .buttonStyle(.borderless)
@@ -146,12 +151,7 @@ struct MenuContentView: View {
                 Button {
                     Task { await store.refreshAll() }
                 } label: {
-                    Image(systemName: "arrow.clockwise")
-                        .rotationEffect(isAnyRefreshing ? .degrees(360) : .zero)
-                        .animation(
-                            isAnyRefreshing ? .linear(duration: 0.8).repeatForever(autoreverses: false) : .default,
-                            value: isAnyRefreshing
-                        )
+                    RefreshButtonLabel(isRefreshing: isAnyRefreshing)
                 }
                 .disabled(isAnyRefreshing)
                 .help("刷新缓存数据并实时查询阿里云")
@@ -536,5 +536,26 @@ private struct EmptyServersView: View {
             Button("导入监控源", action: importAction)
         }
         .frame(maxWidth: .infinity, minHeight: 230)
+    }
+}
+
+private struct RefreshButtonLabel: View {
+    let isRefreshing: Bool
+
+    var body: some View {
+        Group {
+            if isRefreshing {
+                TimelineView(.animation(minimumInterval: 1.0 / 60.0)) { context in
+                    let progress = context.date.timeIntervalSinceReferenceDate
+                        .truncatingRemainder(dividingBy: 0.8) / 0.8
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .rotationEffect(.degrees(progress * 360))
+                }
+            } else {
+                Image(systemName: "arrow.clockwise")
+            }
+        }
+        .frame(width: 16, height: 16)
+        .transaction { $0.animation = nil }
     }
 }
