@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+## api-v0.4.3 - 2026-11-17
+
+- Added per-provider `timeout_seconds` support and raised the default Virtualizor request timeout for slow control panels.
+- Parallelized Virtualizor per-instance sub-queries with HTTP timeout fault tolerance and automatic fallback to `vpsmanage` / `listvs` fields.
+
 ## api-v0.4.2 - 2026-11-15
 
 - Updated the RackNerd SolusVM collector default endpoint to `ctrl.racknerd.com` and added full `<ctrl>` XML document parsing compatibility.

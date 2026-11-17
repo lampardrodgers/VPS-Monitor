@@ -121,6 +121,42 @@ class ProviderNormalizationTests(unittest.TestCase):
         self.assertEqual(result.metrics["disk_used_bytes"], 9000 * 1024**2)
         self.assertNotIn("traffic_total_bytes", result.quota)
 
+    def test_virtualizor_falls_back_to_vpsmanage_and_summary_when_subcalls_timeout(self) -> None:
+        collector = VirtualizorCollector({}, timeout=1)
+        summary = {
+            "hostname": "vm-fallback",
+            "os_name": "ubuntu-24.04-x86_64",
+            "ram": "1024",
+            "space": "20",
+            "cpu_percent": "100.00",
+            "ips": {"s1": "203.0.113.55"},
+            "cached_disk": {"disk": {"Used": 8192000, "Available": 12288000}},
+        }
+        raw = {
+            "list_item": summary,
+            "vpsmanage": {
+                "info": {
+                    "status": 1,
+                    "bandwidth": {"limit": 0, "used": 15360.5},
+                    "vps": summary,
+                }
+            },
+            "ram": {"collector_error": "ReadTimeout"},
+            "cpu": {"collector_error": "ReadTimeout"},
+            "disk": {"collector_error": "ReadTimeout"},
+            "bandwidth": {"collector_error": "ReadTimeout"},
+        }
+
+        result = collector._observation("8", summary, raw)
+
+        self.assertEqual(result.status, "running")
+        self.assertNotIn("cpu_percent", result.metrics)
+        self.assertEqual(result.metrics["memory_total_bytes"], 1024 * 1024**2)
+        self.assertEqual(result.metrics["disk_total_bytes"], 20 * 1024**3)
+        self.assertEqual(result.metrics["disk_used_bytes"], 8192000 * 1024)
+        self.assertEqual(result.quota["traffic_used_bytes"], int(15360.5 * 1024**2))
+        self.assertNotIn("traffic_total_bytes", result.quota)
+
 
 if __name__ == "__main__":
     unittest.main()
